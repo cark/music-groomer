@@ -85,6 +85,13 @@ Label still-missing behavior plainly. A useful early exercise must demonstrate
 a meaningful interaction; do not call disconnected internals or an agent-only
 terminal run a user demo.
 
+Do not let useful review become an endless polish loop. Fix correctness,
+data-loss, and meaningfully unpleasant UX problems before moving on. Fix
+structural debt when the next milestone would substantially worsen it. Record
+attractive refinements and rare edge cases for later. Once the accepted
+experience works in the user's terminal and review has no blocking finding,
+move to the next milestone rather than starting another general polish pass.
+
 Before a large implementation boundary after lengthy alignment, proactively
 suggest a conversation compaction and provide the exact resume phrase. This
 keeps the handoff cheap without making the user spend a turn asking whether the
