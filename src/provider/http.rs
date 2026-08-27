@@ -91,12 +91,12 @@ impl ProviderHttp {
             match response {
                 Ok(response) if response.status().is_success() => return Ok(response),
                 Ok(response) if transient_status(response.status().as_u16()) => {
-                    let requested = response
+                    let retry_after = response
                         .headers()
                         .get("Retry-After")
                         .and_then(|value| value.to_str().ok())
                         .and_then(|value| value.parse::<u64>().ok());
-                    let delay = requested.unwrap_or(retry_seconds).clamp(1, 15);
+                    let delay = retry_delay(retry_after, retry_seconds);
                     retry_seconds = (retry_seconds * 2).min(15);
                     wait_to_retry(delay, deadline, progress)?;
                 }
@@ -172,4 +172,63 @@ fn transient_error(error: &ureq::Error) -> bool {
             | ureq::Error::HostNotFound
             | ureq::Error::ConnectionFailed
     )
+}
+
+fn retry_delay(retry_after: Option<u64>, fallback: u64) -> u64 {
+    retry_after.unwrap_or(fallback).clamp(1, 15)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::mpsc;
+
+    use super::*;
+
+    #[test]
+    fn direct_requests_send_the_meaningful_user_agent() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sent, received) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 4096];
+            let length = stream.read(&mut request).unwrap();
+            sent.send(String::from_utf8_lossy(&request[..length]).into_owned())
+                .unwrap();
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}")
+                .unwrap();
+        });
+        let mut http = ProviderHttp::new();
+
+        let value: serde_json::Value = http
+            .get_json(
+                &format!("http://{address}/test"),
+                "test request",
+                Duration::ZERO,
+                Instant::now() + Duration::from_secs(2),
+                &mut (),
+            )
+            .unwrap();
+        server.join().unwrap();
+        let request = received.recv().unwrap();
+
+        assert_eq!(value["ok"], true);
+        assert!(request.to_ascii_lowercase().contains(&format!(
+            "user-agent: music-groomer/{} (https://github.com/cark/music-groomer)",
+            env!("CARGO_PKG_VERSION")
+        )));
+    }
+
+    #[test]
+    fn retry_after_is_respected_with_a_reasonable_cap() {
+        assert_eq!(retry_delay(Some(7), 2), 7);
+        assert_eq!(retry_delay(Some(600), 2), 15);
+        assert_eq!(retry_delay(None, 4), 4);
+        assert!(transient_status(429));
+        assert!(transient_status(503));
+        assert!(!transient_status(404));
+    }
 }
