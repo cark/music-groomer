@@ -117,6 +117,7 @@ fn review_and_artwork_change_return_to_the_same_preview() {
 
     assert!(matches!(outcome, DemoOutcome::Applied(_)));
     assert!(interaction.transcript.contains("All planned changes"));
+    assert!(interaction.transcript.contains("MusicBrainz artist IDs"));
     assert!(
         interaction
             .transcript

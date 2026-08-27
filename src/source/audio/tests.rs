@@ -82,6 +82,9 @@ fn prove_preservation(name: &str, expected_format: AudioFormat) {
         Some("Person A & Person B")
     );
     assert_eq!(after.tags.album_artists, ["Person A", "Person B"]);
+    assert_eq!(after.tags.artist_ids, ["artist-a-id", "artist-b-id"]);
+    assert_eq!(after.tags.album_artist_ids, ["artist-a-id", "artist-b-id"]);
+    assert_eq!(after.tags.compilation, Some(true));
     assert_eq!(after.tags.date.as_deref(), Some("1971"));
     assert_eq!(after.tags.track, Some(2));
     assert_eq!(after.tags.track_total, Some(8));
@@ -102,6 +105,55 @@ fn prove_preservation(name: &str, expected_format: AudioFormat) {
         let bytes = fs::read(&path).expect("written MP3 should be readable");
         assert_eq!(&bytes[..4], b"ID3\x04", "groomed MP3 should use ID3v2.4");
     }
+
+    let mut ordinary_plan = plan;
+    ordinary_plan.compilation = false;
+    reader
+        .write_tags(&path, &ordinary_plan)
+        .unwrap_or_else(|error| panic!("{name} should clear compilation status: {error}"));
+    assert_eq!(inspected(&reader, &path).tags.compilation, Some(false));
+}
+
+#[test]
+fn absent_confident_identifiers_preserve_existing_values() {
+    for (name, _) in FIXTURES {
+        let temporary = TempDir::new().expect("temporary directory should be created");
+        let path = temporary.path().join(name);
+        fs::copy(fixture(name), &path).expect("fixture should be copied before mutation");
+        add_existing_identifiers(&path);
+        let mut plan = plan();
+        plan.artist_ids = None;
+        plan.album_artist_ids = None;
+        plan.recording_id = None;
+        plan.release_group_id = None;
+
+        LoftyAudioReader
+            .write_tags(&path, &plan)
+            .unwrap_or_else(|error| panic!("{name} should preserve identifiers: {error}"));
+
+        let tags = inspected(&LoftyAudioReader, &path).tags;
+        assert_eq!(tags.artist_ids, ["existing-artist-id"], "{name}");
+        assert_eq!(
+            tags.album_artist_ids,
+            ["existing-album-artist-id"],
+            "{name}"
+        );
+        assert_eq!(
+            tags.recording_id.as_deref(),
+            Some("existing-recording-id"),
+            "{name}"
+        );
+        assert_eq!(
+            tags.release_group_id.as_deref(),
+            Some("existing-release-group-id"),
+            "{name}"
+        );
+        assert_eq!(
+            primary_string(&path, ItemKey::MusicBrainzReleaseId).as_deref(),
+            Some("existing-exact-release-id"),
+            "{name}"
+        );
+    }
 }
 
 fn add_preserved_data(path: &Path) {
@@ -119,6 +171,10 @@ fn add_preserved_data(path: &Path) {
     tag.set_genre("Jazz".to_owned());
     assert!(tag.insert_text(ItemKey::ReplayGainTrackGain, "-3.25 dB".to_owned()));
     tag.insert_text(ItemKey::Comment, "keep this comment".to_owned());
+    tag.insert_unchecked(lofty::tag::TagItem::new(
+        ItemKey::MusicBrainzReleaseId,
+        lofty::tag::ItemValue::Text("existing-exact-release-id".to_owned()),
+    ));
     tag.push_picture(
         Picture::unchecked(PICTURE_BYTES.to_vec())
             .pic_type(PictureType::CoverFront)
@@ -129,6 +185,65 @@ fn add_preserved_data(path: &Path) {
     tagged
         .save_to_path(path, WriteOptions::new())
         .expect("preservation baseline should be writable");
+    if tag_type == lofty::tag::TagType::Id3v2 {
+        write_id3v2_album_ids(path, Some("existing-exact-release-id"), None)
+            .expect("MP3 exact-release baseline should be writable");
+    }
+}
+
+fn add_existing_identifiers(path: &Path) {
+    let mut tagged = Probe::open(path)
+        .expect("fixture should open")
+        .guess_file_type()
+        .expect("fixture type should be detected")
+        .read()
+        .expect("fixture should parse");
+    let tag_type = tagged.primary_tag_type();
+    if tagged.primary_tag().is_none() {
+        tagged.insert_tag(Tag::new(tag_type));
+    }
+    let tag = tagged.primary_tag_mut().expect("primary tag should exist");
+    for (key, value) in [
+        (ItemKey::MusicBrainzArtistId, "existing-artist-id"),
+        (
+            ItemKey::MusicBrainzReleaseArtistId,
+            "existing-album-artist-id",
+        ),
+        (ItemKey::MusicBrainzRecordingId, "existing-recording-id"),
+        (
+            ItemKey::MusicBrainzReleaseGroupId,
+            "existing-release-group-id",
+        ),
+        (ItemKey::MusicBrainzReleaseId, "existing-exact-release-id"),
+    ] {
+        tag.insert_unchecked(lofty::tag::TagItem::new(
+            key,
+            lofty::tag::ItemValue::Text(value.to_owned()),
+        ));
+    }
+    tagged
+        .save_to_path(path, WriteOptions::new())
+        .expect("identifier baseline should be writable");
+    if tag_type == lofty::tag::TagType::Id3v2 {
+        write_id3v2_album_ids(
+            path,
+            Some("existing-exact-release-id"),
+            Some("existing-release-group-id"),
+        )
+        .expect("MP3 release-group baseline should be writable");
+    }
+}
+
+fn primary_string(path: &Path, key: ItemKey) -> Option<String> {
+    Probe::open(path)
+        .expect("fixture should open")
+        .guess_file_type()
+        .expect("fixture type should be detected")
+        .read()
+        .expect("fixture should parse")
+        .primary_tag()
+        .and_then(|tag| tag.get_string(key))
+        .map(str::to_owned)
 }
 
 fn unrelated(path: &Path) -> UnrelatedSnapshot {
@@ -149,6 +264,9 @@ fn unrelated(path: &Path) -> UnrelatedSnapshot {
             .get_strings(ItemKey::Comment)
             .map(str::to_owned)
             .collect(),
+        exact_release_id: tag
+            .get_string(ItemKey::MusicBrainzReleaseId)
+            .map(str::to_owned),
         pictures: tag
             .pictures()
             .iter()
@@ -177,6 +295,9 @@ fn plan() -> PlannedTags {
         album: "New album".to_owned(),
         album_artist: "Person A & Person B".to_owned(),
         album_artists: vec!["Person A".to_owned(), "Person B".to_owned()],
+        artist_ids: Some(vec!["artist-a-id".to_owned(), "artist-b-id".to_owned()]),
+        album_artist_ids: Some(vec!["artist-a-id".to_owned(), "artist-b-id".to_owned()]),
+        compilation: true,
         original_year: 1971,
         track: 2,
         track_total: 8,
@@ -198,6 +319,7 @@ struct UnrelatedSnapshot {
     genre: Option<String>,
     replay_gain: Vec<String>,
     comments: Vec<String>,
+    exact_release_id: Option<String>,
     pictures: Vec<PictureSnapshot>,
 }
 

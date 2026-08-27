@@ -6,8 +6,11 @@ use crate::domain::CandidateRelease;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TagField {
     Artist,
+    ArtistIds,
     AlbumArtist,
+    AlbumArtistIds,
     Album,
+    Compilation,
     OriginalYear,
     DiscNumber,
     TrackNumber,
@@ -20,8 +23,11 @@ impl fmt::Display for TagField {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::Artist => "artist",
+            Self::ArtistIds => "MusicBrainz artist IDs",
             Self::AlbumArtist => "album artist",
+            Self::AlbumArtistIds => "MusicBrainz album-artist IDs",
             Self::Album => "album",
+            Self::Compilation => "compilation",
             Self::OriginalYear => "original year",
             Self::DiscNumber => "disc number",
             Self::TrackNumber => "track number",

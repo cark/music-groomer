@@ -155,6 +155,9 @@ fn changes_for(
     let original_year = source.original_year.map(|year| year.to_string());
     let disc_number = source.position.map(|position| position.disc.to_string());
     let track_number = source.position.map(|position| position.track.to_string());
+    let artist_ids = confident_ids(&track.artist_credit);
+    let album_artist_ids = confident_ids(&release.album_artist);
+    let compilation = release.kind == crate::domain::ReleaseKind::Compilation;
     let proposed = vec![
         (
             TagField::Artist,
@@ -196,6 +199,26 @@ fn changes_for(
         })
         .collect();
 
+    add_confident_list_change(
+        &mut changes,
+        TagField::ArtistIds,
+        &source.artist_ids,
+        artist_ids,
+    );
+    add_confident_list_change(
+        &mut changes,
+        TagField::AlbumArtistIds,
+        &source.album_artist_ids,
+        album_artist_ids,
+    );
+    if source.compilation != Some(compilation) {
+        changes.push(TagChange {
+            field: TagField::Compilation,
+            before: source.compilation.map(yes_no),
+            after: yes_no(compilation),
+        });
+    }
+
     if source.recording_id != track.recording_id
         && let Some(recording_id) = &track.recording_id
     {
@@ -216,6 +239,40 @@ fn changes_for(
     }
 
     changes
+}
+
+fn confident_ids(credit: &crate::domain::ArtistCredit) -> Option<Vec<String>> {
+    (!credit.artists.is_empty())
+        .then(|| {
+            credit
+                .artists
+                .iter()
+                .map(|artist| artist.musicbrainz_id.clone())
+                .collect::<Option<Vec<_>>>()
+        })
+        .flatten()
+}
+
+fn add_confident_list_change(
+    changes: &mut Vec<TagChange>,
+    field: TagField,
+    before: &[String],
+    after: Option<Vec<String>>,
+) {
+    let Some(after) = after else {
+        return;
+    };
+    if before != after {
+        changes.push(TagChange {
+            field,
+            before: (!before.is_empty()).then(|| before.join("; ")),
+            after: after.join("; "),
+        });
+    }
+}
+
+fn yes_no(value: bool) -> String {
+    if value { "yes" } else { "no" }.to_owned()
 }
 
 fn no_artwork() -> ArtworkChoice {

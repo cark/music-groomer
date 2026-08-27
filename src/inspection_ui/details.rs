@@ -51,6 +51,23 @@ fn show_audio(
         audio.tags.album_artist.as_deref(),
     )?;
     show_values(interaction, "Album artists", &audio.tags.album_artists)?;
+    show_values(
+        interaction,
+        "MusicBrainz artist IDs",
+        &audio.tags.artist_ids,
+    )?;
+    show_values(
+        interaction,
+        "MusicBrainz album-artist IDs",
+        &audio.tags.album_artist_ids,
+    )?;
+    interaction.show(&format!(
+        "    Compilation: {}",
+        audio
+            .tags
+            .compilation
+            .map_or("(missing)", |value| if value { "yes" } else { "no" })
+    ))?;
     show_tag(interaction, "Date", audio.tags.date.as_deref())?;
     interaction.show(&format!(
         "    Position: disc {} of {}, track {} of {}",

@@ -26,6 +26,9 @@ pub struct PlannedTags {
     pub album: String,
     pub album_artist: String,
     pub album_artists: Vec<String>,
+    pub artist_ids: Option<Vec<String>>,
+    pub album_artist_ids: Option<Vec<String>>,
+    pub compilation: bool,
     pub original_year: u16,
     pub track: u32,
     pub track_total: u32,
@@ -105,6 +108,16 @@ impl LoftyAudioReader {
             .read()
             .map_err(|error| AudioReadError::Parse(error.to_string()))?;
         let tag_type = tagged.primary_tag_type();
+        let exact_release_id = tagged
+            .primary_tag()
+            .and_then(|tag| tag.get_string(ItemKey::MusicBrainzReleaseId))
+            .map(str::to_owned);
+        let release_group_id = plan.release_group_id.clone().or_else(|| {
+            tagged
+                .primary_tag()
+                .and_then(|tag| tag.get_string(ItemKey::MusicBrainzReleaseGroupId))
+                .map(str::to_owned)
+        });
         if tagged.primary_tag().is_none() {
             tagged.insert_tag(Tag::new(tag_type));
         }
@@ -116,7 +129,11 @@ impl LoftyAudioReader {
             .save_to_path(path, WriteOptions::new())
             .map_err(|error| AudioReadError::Write(error.to_string()))?;
         if tag_type == TagType::Id3v2 {
-            write_id3v2_release_group(path, plan.release_group_id.as_deref())?;
+            write_id3v2_album_ids(
+                path,
+                exact_release_id.as_deref(),
+                release_group_id.as_deref(),
+            )?;
         }
         Ok(())
     }
@@ -162,6 +179,11 @@ fn read_tags(tag: &Tag) -> AudioTags {
         album: text(tag.album()),
         album_artist: tag.get_string(ItemKey::AlbumArtist).map(str::to_owned),
         album_artists: strings(tag, ItemKey::AlbumArtists),
+        artist_ids: strings(tag, ItemKey::MusicBrainzArtistId),
+        album_artist_ids: strings(tag, ItemKey::MusicBrainzReleaseArtistId),
+        compilation: tag
+            .get_string(ItemKey::FlagCompilation)
+            .and_then(compilation_value),
         date: tag
             .get_string(ItemKey::OriginalReleaseDate)
             .or_else(|| tag.get_string(ItemKey::RecordingDate))
@@ -189,6 +211,14 @@ fn strings(tag: &Tag, key: ItemKey) -> Vec<String> {
     tag.get_strings(key).map(str::to_owned).collect()
 }
 
+fn compilation_value(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" => Some(true),
+        "0" | "false" | "no" => Some(false),
+        _ => None,
+    }
+}
+
 fn apply_plan(tag: &mut Tag, plan: &PlannedTags) {
     tag.set_title(plan.title.clone());
     tag.set_artist(plan.artist.clone());
@@ -196,6 +226,16 @@ fn apply_plan(tag: &mut Tag, plan: &PlannedTags) {
     tag.set_album(plan.album.clone());
     tag.insert_text(ItemKey::AlbumArtist, plan.album_artist.clone());
     replace_text_values(tag, ItemKey::AlbumArtists, &plan.album_artists);
+    replace_optional_values(tag, ItemKey::MusicBrainzArtistId, &plan.artist_ids);
+    replace_optional_values(
+        tag,
+        ItemKey::MusicBrainzReleaseArtistId,
+        &plan.album_artist_ids,
+    );
+    tag.insert_text(
+        ItemKey::FlagCompilation,
+        if plan.compilation { "1" } else { "0" }.to_owned(),
+    );
     tag.insert_text(ItemKey::OriginalReleaseDate, plan.original_year.to_string());
     tag.insert_text(ItemKey::RecordingDate, plan.original_year.to_string());
     tag.set_track(plan.track);
@@ -221,23 +261,34 @@ fn replace_text_values(tag: &mut Tag, key: ItemKey, values: &[String]) {
 }
 
 fn replace_optional(tag: &mut Tag, key: ItemKey, value: &Option<String>) {
+    let Some(value) = value else {
+        return;
+    };
     tag.take(key).for_each(drop);
-    if let Some(value) = value {
-        if key == ItemKey::MusicBrainzRecordingId {
-            tag.insert_unchecked(TagItem::new(
-                key,
-                lofty::tag::ItemValue::Text(value.clone()),
-            ));
-        } else {
-            tag.insert_text(key, value.clone());
-        }
+    if key == ItemKey::MusicBrainzRecordingId {
+        tag.insert_unchecked(TagItem::new(
+            key,
+            lofty::tag::ItemValue::Text(value.clone()),
+        ));
+    } else {
+        tag.insert_text(key, value.clone());
     }
 }
 
-fn write_id3v2_release_group(
+fn replace_optional_values(tag: &mut Tag, key: ItemKey, values: &Option<Vec<String>>) {
+    if let Some(values) = values {
+        replace_text_values(tag, key, values);
+    }
+}
+
+fn write_id3v2_album_ids(
     path: &Path,
+    exact_release_id: Option<&str>,
     release_group_id: Option<&str>,
 ) -> Result<(), AudioReadError> {
+    if exact_release_id.is_none() && release_group_id.is_none() {
+        return Ok(());
+    }
     let tagged = Probe::open(path)
         .map_err(|error| AudioReadError::Parse(error.to_string()))?
         .guess_file_type()
@@ -248,6 +299,13 @@ fn write_id3v2_release_group(
         return Ok(());
     };
     let mut id3v2 = Id3v2Tag::from(tag.clone());
+    id3v2.remove_user_text("MusicBrainz Album Id");
+    if let Some(exact_release_id) = exact_release_id {
+        id3v2.insert_user_text(
+            "MusicBrainz Album Id".to_owned(),
+            exact_release_id.to_owned(),
+        );
+    }
     id3v2.remove_user_text("MusicBrainz Release Group Id");
     if let Some(release_group_id) = release_group_id {
         id3v2.insert_user_text(

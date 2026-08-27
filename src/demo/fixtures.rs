@@ -95,6 +95,9 @@ fn matched_single() -> DemoData {
             artist: Some("The Driver".into()),
             album: None,
             album_artist: None,
+            artist_ids: Vec::new(),
+            album_artist_ids: Vec::new(),
+            compilation: Some(false),
             original_year: None,
             position: None,
             duration_ms: 201_000,
@@ -102,15 +105,22 @@ fn matched_single() -> DemoData {
             release_group_id: None,
         }],
     };
+    let credit = ArtistCredit::credited(
+        "The Driver",
+        vec![Artist {
+            name: "The Driver".into(),
+            musicbrainz_id: Some("artist-driver".into()),
+        }],
+    );
     let candidate = CandidateRelease {
         provider_key: "car-single".into(),
         title: "Car Song".into(),
-        album_artist: ArtistCredit::single("The Driver"),
+        album_artist: credit.clone(),
         original_year: 2024,
         kind: ReleaseKind::Single,
         tracks: vec![ReleaseTrack {
             title: "Car Song".into(),
-            artist_credit: ArtistCredit::single("The Driver"),
+            artist_credit: credit,
             position: Position::new(1, 1),
             duration_ms: 200_500,
             recording_id: Some("recording-car-song".into()),
@@ -140,6 +150,9 @@ fn standalone_track() -> DemoData {
                 artist: Some("Bedroom Artist".into()),
                 album: None,
                 album_artist: None,
+                artist_ids: Vec::new(),
+                album_artist_ids: Vec::new(),
+                compilation: None,
                 original_year: None,
                 position: None,
                 duration_ms: 189_000,
@@ -166,6 +179,9 @@ fn inspected(name: &str, title: &str, track: u16, duration_ms: u64) -> Inspected
         artist: Some("The Group".into()),
         album: Some("The Album".into()),
         album_artist: Some("The Group".into()),
+        artist_ids: Vec::new(),
+        album_artist_ids: Vec::new(),
+        compilation: Some(false),
         original_year: Some(1971),
         position: Some(Position::new(1, track)),
         duration_ms,
@@ -181,11 +197,15 @@ fn album_candidate(
     artist: &str,
     durations: [u64; 2],
 ) -> CandidateRelease {
-    let credit = if artist.contains(" & ") {
-        ArtistCredit::credited(artist, artist.split(" & ").map(Artist::named).collect())
-    } else {
-        ArtistCredit::single(artist)
-    };
+    let artists = artist
+        .split(" & ")
+        .enumerate()
+        .map(|(index, name)| Artist {
+            name: name.to_owned(),
+            musicbrainz_id: Some(format!("artist-{key}-{}", index + 1)),
+        })
+        .collect();
+    let credit = ArtistCredit::credited(artist, artists);
     CandidateRelease {
         provider_key: key.into(),
         title: title.into(),
