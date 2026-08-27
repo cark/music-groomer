@@ -184,6 +184,18 @@ fn rank(
     let count_is_compatible = !inspection.kind.requires_complete_release()
         || inspection.tracks.len() == candidate.tracks.len();
     let complete = count_is_compatible && mappings.len() == inspection.tracks.len();
+    if complete {
+        reasons.push(reason(format!(
+            "all {} source {} {} uniquely using identifiers, positions, or title-and-duration evidence",
+            inspection.tracks.len(),
+            if inspection.tracks.len() == 1 {
+                "track"
+            } else {
+                "tracks"
+            },
+            if inspection.tracks.len() == 1 { "maps" } else { "map" }
+        )));
+    }
 
     RankedCandidate {
         candidate,

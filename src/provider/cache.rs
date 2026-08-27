@@ -135,6 +135,17 @@ impl ProviderCache {
             extension
         ));
         self.write_bytes_atomic(&path, &artwork.bytes)?;
+        let prefix = format!("{}.", digest(release_group_id.as_bytes()));
+        for previous in regular_files(&self.root.join("artwork"))? {
+            let same_key = previous
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(&prefix));
+            if same_key && previous != path {
+                fs::remove_file(&previous)
+                    .map_err(|error| CacheError::Io(previous.clone(), error))?;
+            }
+        }
         self.prune()
     }
 

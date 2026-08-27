@@ -221,7 +221,7 @@ fn run_inspection(source: PathBuf, offline: bool) -> Result<(), String> {
 }
 
 fn print_help() {
-    println!("music-groomer 0.1.0 (milestone 3a in progress)");
+    println!("music-groomer 0.1.0 (pre-alpha, through milestone 3a)");
     println!();
     println!("Inspect one album directory or loose audio file without changing it:");
     println!();

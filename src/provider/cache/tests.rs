@@ -96,6 +96,31 @@ fn artwork_round_trips_in_its_native_format() {
     assert_eq!(cache.status(UNIX_EPOCH).unwrap().artwork_entries, 1);
 }
 
+#[test]
+fn replacing_artwork_removes_the_previous_native_format() {
+    let temporary = TempDir::new().unwrap();
+    let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+    let mut jpeg = Vec::new();
+    DynamicImage::ImageRgba8(RgbaImage::new(3, 4))
+        .write_to(&mut Cursor::new(&mut jpeg), ImageFormat::Jpeg)
+        .unwrap();
+    let mut png = Vec::new();
+    DynamicImage::ImageRgba8(RgbaImage::new(5, 6))
+        .write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
+        .unwrap();
+
+    cache
+        .store_artwork("group", &cover_art_archive::decode(jpeg).unwrap())
+        .unwrap();
+    cache
+        .store_artwork("group", &cover_art_archive::decode(png).unwrap())
+        .unwrap();
+
+    let cached = cache.artwork("group").unwrap().unwrap();
+    assert_eq!(cached.artwork.format, crate::source::ArtworkFormat::Png);
+    assert_eq!(cache.status(UNIX_EPOCH).unwrap().artwork_entries, 1);
+}
+
 fn search(album: &str) -> ProviderSearch {
     ProviderSearch {
         kind: SourceKind::AlbumDirectory,

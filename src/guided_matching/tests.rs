@@ -178,7 +178,11 @@ fn artwork_view_action_uses_the_viewer_boundary() {
     .unwrap();
 
     assert_eq!(viewer.downloads, 1);
-    assert!(interaction.transcript.contains("Opened the selected artwork"));
+    assert!(
+        interaction
+            .transcript
+            .contains("Opened the selected artwork")
+    );
 }
 
 fn source() -> SourceInspection {
