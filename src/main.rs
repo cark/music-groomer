@@ -3,6 +3,7 @@ use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use music_groomer::artwork_viewer::SystemArtworkViewer;
 use music_groomer::config::AppConfig;
 use music_groomer::demo::{self, DemoScenario};
 use music_groomer::guided_matching;
@@ -195,6 +196,7 @@ fn run_inspection(source: PathBuf, offline: bool) -> Result<(), String> {
                 .map_err(|error| error.to_string())?,
         ))
         .map_err(|error| error.to_string())?;
+        let mut viewer = SystemArtworkViewer::new();
         let result = guided_matching::run(
             &mut interaction,
             &inspection,
@@ -202,6 +204,7 @@ fn run_inspection(source: PathBuf, offline: bool) -> Result<(), String> {
             MusicBrainzProvider::new(),
             CoverArtArchive::new(),
             cache,
+            &mut viewer,
         )
         .map_err(|error| format!("terminal interaction failed: {error}"))?;
         if result.metadata == MetadataSelection::Cancelled {

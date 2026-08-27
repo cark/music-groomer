@@ -1,6 +1,7 @@
 use std::io;
 use std::time::SystemTime;
 
+use crate::artwork_viewer::ArtworkViewer;
 use crate::matching::MatchPolicy;
 use crate::matching_ui::{MetadataSelection, choose};
 use crate::provider::{
@@ -24,13 +25,14 @@ pub enum ArtworkSelection {
     None,
 }
 
-pub fn run<M: MetadataProvider, A: ArtworkProvider>(
+pub fn run<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
     interaction: &mut impl Interaction,
     source: &SourceInspection,
     offline: bool,
     metadata_provider: M,
     artwork_provider: A,
     cache: ProviderCache,
+    viewer: &mut V,
 ) -> io::Result<GuidedMatchResult> {
     let (inspection, search) = source_inspection(source);
     interaction.show("")?;
@@ -103,7 +105,13 @@ pub fn run<M: MetadataProvider, A: ArtworkProvider>(
         match answer.as_str() {
             "r" | "review" => review_match(interaction, &metadata)?,
             "a" | "artwork" => {
-                artwork = choose_artwork(interaction, source, archive_artwork.as_ref(), artwork)?;
+                artwork = choose_artwork(
+                    interaction,
+                    source,
+                    archive_artwork.as_ref(),
+                    artwork,
+                    viewer,
+                )?;
             }
             "f" | "refresh" if !offline => {
                 let refreshed = {
@@ -294,36 +302,78 @@ fn artwork_label(source: &SourceInspection, artwork: &ArtworkSelection) -> Strin
     }
 }
 
-fn choose_artwork(
+fn choose_artwork<V: ArtworkViewer>(
     interaction: &mut impl Interaction,
     source: &SourceInspection,
     archive: Option<&crate::provider::ProviderArtwork>,
     current: ArtworkSelection,
+    viewer: &mut V,
 ) -> io::Result<ArtworkSelection> {
     match (source.selected_artwork.is_some(), archive) {
         (true, Some(archive)) => loop {
             let answer = interaction.ask(
-                "Artwork: [1] Keep source cover (default)  [2] Use Cover Art Archive front  [b] Back: ",
+                "Artwork: [1] Keep source cover (default)  [2] Use Cover Art Archive front  [v] View current  [b] Back: ",
             )?;
             match answer.to_ascii_lowercase().as_str() {
                 "1" => return Ok(ArtworkSelection::Source),
                 "2" => return Ok(ArtworkSelection::CoverArtArchive(archive.clone())),
+                "v" | "view" => view_artwork(interaction, source, &current, viewer)?,
                 "" | "b" | "back" => return Ok(current),
                 _ => interaction.show("Please choose Source, Cover Art Archive, or Back.")?,
             }
         },
         (true, None) => {
-            interaction.show("The source cover is the only usable sidecar artwork.")?;
+            view_artwork(interaction, source, &current, viewer)?;
             Ok(current)
         }
         (false, Some(_)) => {
-            interaction.show("The Cover Art Archive front is the only usable sidecar artwork.")?;
+            view_artwork(interaction, source, &current, viewer)?;
             Ok(current)
         }
         (false, None) => {
             interaction.show("No album artwork is available.")?;
             Ok(current)
         }
+    }
+}
+
+fn view_artwork<V: ArtworkViewer>(
+    interaction: &mut impl Interaction,
+    source: &SourceInspection,
+    artwork: &ArtworkSelection,
+    viewer: &mut V,
+) -> io::Result<()> {
+    let result = match artwork {
+        ArtworkSelection::Source => source
+            .selected_artwork
+            .and_then(|index| source.artwork.get(index))
+            .ok_or_else(|| "the selected source cover is unavailable".to_owned())
+            .and_then(|artwork| {
+                let root = if source.source.is_dir() {
+                    source.source.clone()
+                } else {
+                    source
+                        .source
+                        .parent()
+                        .unwrap_or_else(|| std::path::Path::new("."))
+                        .to_owned()
+                };
+                viewer
+                    .view_path(&root.join(&artwork.relative_path))
+                    .map_err(|error| error.to_string())
+            }),
+        ArtworkSelection::CoverArtArchive(artwork) => viewer
+            .view_download(artwork)
+            .map_err(|error| error.to_string()),
+        ArtworkSelection::None => Err("no artwork is available to view".into()),
+    };
+    match result {
+        Ok(()) => interaction.show("Opened the selected artwork in the system image viewer."),
+        Err(error) => show_styled(
+            interaction,
+            TextStyle::Error,
+            &format!("Could not view artwork: {error}"),
+        ),
     }
 }
 

@@ -5,6 +5,7 @@ use std::time::Duration;
 use tempfile::TempDir;
 
 use super::*;
+use crate::artwork_viewer::{ArtworkViewer, ViewerError};
 use crate::domain::{
     ArtistCredit, CandidateRelease, Position, ReleaseKind, ReleaseTrack, SourceKind,
 };
@@ -46,6 +47,40 @@ impl MetadataProvider for FakeMetadata {
 
 struct NoArtwork;
 
+struct NoopViewer;
+
+impl ArtworkViewer for NoopViewer {
+    fn view_path(&mut self, _path: &std::path::Path) -> Result<(), ViewerError> {
+        Ok(())
+    }
+
+    fn view_download(
+        &mut self,
+        _artwork: &crate::provider::ProviderArtwork,
+    ) -> Result<(), ViewerError> {
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct RecordingViewer {
+    downloads: usize,
+}
+
+impl ArtworkViewer for RecordingViewer {
+    fn view_path(&mut self, _path: &std::path::Path) -> Result<(), ViewerError> {
+        Ok(())
+    }
+
+    fn view_download(
+        &mut self,
+        _artwork: &crate::provider::ProviderArtwork,
+    ) -> Result<(), ViewerError> {
+        self.downloads += 1;
+        Ok(())
+    }
+}
+
 impl ArtworkProvider for NoArtwork {
     fn front(
         &mut self,
@@ -74,6 +109,7 @@ fn clear_match_reaches_read_only_preview_without_extra_identifier_input() {
         },
         NoArtwork,
         cache,
+        &mut NoopViewer,
     )
     .unwrap();
 
@@ -105,6 +141,7 @@ fn materially_changed_refresh_keeps_current_preview_by_default() {
         },
         NoArtwork,
         cache,
+        &mut NoopViewer,
     )
     .unwrap();
 
@@ -117,6 +154,31 @@ fn materially_changed_refresh_keeps_current_preview_by_default() {
             .transcript
             .contains("Current preview kept unchanged")
     );
+}
+
+#[test]
+fn artwork_view_action_uses_the_viewer_boundary() {
+    let mut interaction = ScriptedInteraction {
+        answers: VecDeque::new(),
+        transcript: String::new(),
+    };
+    let mut viewer = RecordingViewer::default();
+    let artwork = crate::provider::ProviderArtwork {
+        bytes: vec![1, 2, 3],
+        format: crate::source::ArtworkFormat::Jpeg,
+        dimensions: (10, 20),
+    };
+
+    view_artwork(
+        &mut interaction,
+        &source(),
+        &ArtworkSelection::CoverArtArchive(artwork),
+        &mut viewer,
+    )
+    .unwrap();
+
+    assert_eq!(viewer.downloads, 1);
+    assert!(interaction.transcript.contains("Opened the selected artwork"));
 }
 
 fn source() -> SourceInspection {
