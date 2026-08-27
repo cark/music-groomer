@@ -331,6 +331,7 @@ mod tests {
             position: Some(Position::new(1, track)),
             duration_ms,
             recording_id: None,
+            release_group_id: None,
         }
     }
 
@@ -451,6 +452,7 @@ mod tests {
                 position: None,
                 duration_ms: 200_000,
                 recording_id: Some("recording-1".into()),
+                release_group_id: None,
             }],
         };
         let candidate = CandidateRelease {

@@ -73,6 +73,7 @@ pub struct InspectedTrack {
     pub position: Option<Position>,
     pub duration_ms: u64,
     pub recording_id: Option<String>,
+    pub release_group_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

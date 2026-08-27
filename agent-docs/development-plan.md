@@ -7,8 +7,9 @@ This page tracks implementation. Durable product reasoning belongs in the
 
 - Product and technical alignment completed on 2026-08-27.
 - Milestone 0 documentation baseline completed on 2026-08-27.
-- Application implementation has not started.
-- Next action requires explicit user authorization: begin milestone 1.
+- Milestone 1 implementation completed on 2026-08-27 and is awaiting the
+  user's guided-interaction review.
+- Milestone 2 has not been authorized.
 
 ## Working rules
 
@@ -35,7 +36,7 @@ Acceptance:
 
 ## Milestone 1: core and guided UX
 
-Status: pending
+Status: awaiting user UX review
 
 Build domain values for inspection, candidates, decisions, changes, warnings,
 layout, immutable plans, and apply reports. Implement deterministic matching and
@@ -51,6 +52,17 @@ Acceptance:
 - Album, collaboration, compilation, multi-disc, matched-single, and unmatched
   standalone layouts have focused tests.
 - User reviews the runnable fake-data interaction before milestone 2.
+
+Review the interaction without touching real files or providers:
+
+```text
+nix develop -c cargo run -- demo
+```
+
+The session offers an ordinary album, an ambiguous collaboration, a matched
+single, and an unmatched standalone track. Its Apply action is explicitly
+simulated and writes nothing. Named scenarios are also available for focused
+testing, but are not part of the intended end-user workflow.
 
 ## Milestone 2: file inspection and preservation
 
