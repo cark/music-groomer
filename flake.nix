@@ -20,6 +20,7 @@
             rustfmt
             clippy
             bacon
+            ffmpeg-headless
           ];
 
           RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
