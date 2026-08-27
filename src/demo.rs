@@ -2,7 +2,6 @@ mod destination;
 mod fixtures;
 mod planning;
 mod render;
-mod terminal;
 
 #[cfg(test)]
 mod tests;
@@ -13,12 +12,12 @@ use std::path::Path;
 
 use crate::matching::{MatchDecision, MatchPolicy, RankedCandidate};
 use crate::plan::{ApplyReport, GroomingPlan, MatchSelection};
+pub use crate::terminal::{Interaction, StdioInteraction, TextStyle};
 
 use destination::DestinationRoot;
 use fixtures::{DemoData, demo_data};
 use planning::{build_plan, coherent_standalone};
 use render::{choose_artwork, show_details, show_inspection, show_styled, show_summary};
-pub use terminal::{Interaction, StdioInteraction, TextStyle};
 
 const PRETEND_LIBRARY_ROOT: &str = "/media/music";
 
@@ -253,17 +252,17 @@ fn select_metadata(
                 if matches!(answer.as_str(), "c" | "C" | "q" | "Q") {
                     return Ok(MetadataSelection::Cancelled);
                 }
-                if let Ok(index) = answer.parse::<usize>() {
-                    if let Some(candidate) = candidates.get(index.saturating_sub(1)) {
-                        let label = interaction
-                            .styled(TextStyle::Value, &candidate.candidate.human_label());
-                        interaction.show(&format!("Using: {label}"))?;
-                        interaction.show("")?;
-                        return Ok(MetadataSelection::Matched {
-                            candidate: Box::new(candidate.clone()),
-                            automatic: false,
-                        });
-                    }
+                if let Ok(index) = answer.parse::<usize>()
+                    && let Some(candidate) = candidates.get(index.saturating_sub(1))
+                {
+                    let label =
+                        interaction.styled(TextStyle::Value, &candidate.candidate.human_label());
+                    interaction.show(&format!("Using: {label}"))?;
+                    interaction.show("")?;
+                    return Ok(MetadataSelection::Matched {
+                        candidate: Box::new(candidate.clone()),
+                        automatic: false,
+                    });
                 }
                 show_styled(
                     interaction,

@@ -182,14 +182,14 @@ pub(super) fn choose_artwork(
             "b" | "back" => return Ok(plan),
             "v" | "view" => {
                 let number = interaction.ask("View which artwork number? ")?;
-                if let Ok(index) = number.parse::<usize>() {
-                    if let Some(artwork) = choices.get(index.saturating_sub(1)) {
-                        interaction.show(&format!(
-                            "Would open {} in the normal image viewer.",
-                            artwork.description()
-                        ))?;
-                        continue;
-                    }
+                if let Ok(index) = number.parse::<usize>()
+                    && let Some(artwork) = choices.get(index.saturating_sub(1))
+                {
+                    interaction.show(&format!(
+                        "Would open {} in the normal image viewer.",
+                        artwork.description()
+                    ))?;
+                    continue;
                 }
                 show_styled(
                     interaction,
@@ -198,16 +198,16 @@ pub(super) fn choose_artwork(
                 )?;
             }
             _ => {
-                if let Ok(index) = answer.parse::<usize>() {
-                    if let Some(artwork) = choices.get(index.saturating_sub(1)) {
-                        show_styled(
-                            interaction,
-                            TextStyle::Success,
-                            &format!("Selected: {}", artwork.description()),
-                        )?;
-                        interaction.show("")?;
-                        return Ok(plan.with_artwork(artwork.clone()));
-                    }
+                if let Ok(index) = answer.parse::<usize>()
+                    && let Some(artwork) = choices.get(index.saturating_sub(1))
+                {
+                    show_styled(
+                        interaction,
+                        TextStyle::Success,
+                        &format!("Selected: {}", artwork.description()),
+                    )?;
+                    interaction.show("")?;
+                    return Ok(plan.with_artwork(artwork.clone()));
                 }
                 show_styled(
                     interaction,

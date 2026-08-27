@@ -196,23 +196,23 @@ fn changes_for(
         })
         .collect();
 
-    if source.recording_id != track.recording_id {
-        if let Some(recording_id) = &track.recording_id {
-            changes.push(TagChange {
-                field: TagField::MusicBrainzRecordingId,
-                before: source.recording_id.clone(),
-                after: recording_id.clone(),
-            });
-        }
+    if source.recording_id != track.recording_id
+        && let Some(recording_id) = &track.recording_id
+    {
+        changes.push(TagChange {
+            field: TagField::MusicBrainzRecordingId,
+            before: source.recording_id.clone(),
+            after: recording_id.clone(),
+        });
     }
-    if source.release_group_id != release.release_group_id {
-        if let Some(release_group_id) = &release.release_group_id {
-            changes.push(TagChange {
-                field: TagField::MusicBrainzReleaseGroupId,
-                before: source.release_group_id.clone(),
-                after: release_group_id.clone(),
-            });
-        }
+    if source.release_group_id != release.release_group_id
+        && let Some(release_group_id) = &release.release_group_id
+    {
+        changes.push(TagChange {
+            field: TagField::MusicBrainzReleaseGroupId,
+            before: source.release_group_id.clone(),
+            after: release_group_id.clone(),
+        });
     }
 
     changes

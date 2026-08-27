@@ -3,7 +3,10 @@ use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use music_groomer::demo::{self, DemoScenario, StdioInteraction};
+use music_groomer::demo::{self, DemoScenario};
+use music_groomer::inspection_ui;
+use music_groomer::source::SourceInspector;
+use music_groomer::terminal::StdioInteraction;
 
 fn main() -> ExitCode {
     match run() {
@@ -25,12 +28,16 @@ fn run() -> Result<(), String> {
         print_help();
         return Ok(());
     }
-    if command != "demo" {
-        return Err(
-            "real source processing is not implemented yet; use `music-groomer demo`".to_owned(),
-        );
+    if command == "demo" {
+        return run_demo(arguments);
     }
+    if let Some(argument) = arguments.next() {
+        return Err(format!("unexpected argument `{argument}` after SOURCE"));
+    }
+    run_inspection(PathBuf::from(command))
+}
 
+fn run_demo(mut arguments: impl Iterator<Item = String>) -> Result<(), String> {
     let mut scenario = None;
     let mut output = None;
     while let Some(argument) = arguments.next() {
@@ -59,11 +66,33 @@ fn run() -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+fn run_inspection(source: PathBuf) -> Result<(), String> {
+    let inspection = SourceInspector::default()
+        .inspect(&source)
+        .map_err(|error| error.to_string())?;
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    let styling = stdout.is_terminal() && env::var_os("NO_COLOR").is_none();
+    let mut interaction = StdioInteraction::new(stdin.lock(), stdout.lock(), styling);
+    inspection_ui::run(&mut interaction, &inspection)
+        .map_err(|error| format!("terminal interaction failed: {error}"))?;
+    if inspection.is_blocked() {
+        Err("inspection found blocking problems; the source remains untouched".to_owned())
+    } else {
+        Ok(())
+    }
+}
+
 fn print_help() {
-    println!("music-groomer 0.1.0 (milestone 1)");
+    println!("music-groomer 0.1.0 (milestone 2)");
     println!();
-    println!("The real file workflow is not implemented yet.");
-    println!("Run the safe guided simulation with:");
+    println!("Inspect one album directory or loose audio file without changing it:");
+    println!();
+    println!("  music-groomer SOURCE");
+    println!();
+    println!("Provider matching, destination access, and Apply are not implemented yet.");
+    println!();
+    println!("The Milestone 1 simulation remains available with:");
     println!();
     println!("  music-groomer demo [SCENARIO] [--output DIRECTORY]");
     println!();

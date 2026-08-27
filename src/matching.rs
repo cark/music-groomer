@@ -134,23 +134,23 @@ fn rank(inspection: &Inspection, candidate: CandidateRelease) -> RankedCandidate
         });
     }
 
-    if let Some(album) = common_string(&inspection.tracks, |track| &track.album) {
-        if normalize(&album) == normalize(&candidate.title) {
-            score += 60;
-            reasons.push(reason("album title agrees"));
-        }
+    if let Some(album) = common_string(&inspection.tracks, |track| &track.album)
+        && normalize(&album) == normalize(&candidate.title)
+    {
+        score += 60;
+        reasons.push(reason("album title agrees"));
     }
-    if let Some(artist) = common_string(&inspection.tracks, |track| &track.album_artist) {
-        if normalize(&artist) == normalize(&candidate.album_artist.display) {
-            score += 40;
-            reasons.push(reason("album artist agrees"));
-        }
+    if let Some(artist) = common_string(&inspection.tracks, |track| &track.album_artist)
+        && normalize(&artist) == normalize(&candidate.album_artist.display)
+    {
+        score += 40;
+        reasons.push(reason("album artist agrees"));
     }
-    if let Some(year) = common_value(&inspection.tracks, |track| track.original_year) {
-        if year == candidate.original_year {
-            score += 10;
-            reasons.push(reason("original year agrees"));
-        }
+    if let Some(year) = common_value(&inspection.tracks, |track| track.original_year)
+        && year == candidate.original_year
+    {
+        score += 10;
+        reasons.push(reason("original year agrees"));
     }
 
     let count_is_compatible = !inspection.kind.requires_complete_release()
