@@ -75,7 +75,31 @@ fn status_is_read_only_and_clear_requires_ownership_marker() {
     assert_eq!(cache.status(UNIX_EPOCH).unwrap().total_bytes, 0);
     assert!(!root.exists());
     fs::create_dir(&root).unwrap();
+    cache
+        .clear()
+        .expect("an empty override is already safe to clear");
+    assert!(!root.exists());
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("unrelated"), "keep me").unwrap();
     assert!(matches!(cache.clear(), Err(CacheError::NotOwned(_))));
+}
+
+#[test]
+fn writing_refuses_to_claim_a_non_empty_unmarked_directory() {
+    let temporary = TempDir::new().unwrap();
+    let root = temporary.path().join("cache");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("unrelated"), "keep me").unwrap();
+    let cache = ProviderCache::new(root.clone(), 1024 * 1024);
+
+    assert!(matches!(
+        cache.store_metadata(&search("Album"), &[candidate("one")], UNIX_EPOCH),
+        Err(CacheError::NotOwned(_))
+    ));
+    assert_eq!(
+        fs::read_to_string(root.join("unrelated")).unwrap(),
+        "keep me"
+    );
 }
 
 #[test]

@@ -138,6 +138,13 @@ mutating anything. `music-groomer cache clear` confirms before deleting only
 music-groomer's cache. Automatic pruning occurs on writes, never merely because
 status was requested.
 
+`--cache-dir PATH` selects an exact cache directory for the whole invocation,
+primarily for smoke tests and other isolated machine runs. Normal grooming,
+offline mode, status, and clearing all use the selected cache. The caller owns
+temporary-directory cleanup. A missing or empty directory can become a marked
+music-groomer cache; a non-empty unmarked directory must never be claimed or
+cleared.
+
 ## Apply transaction
 
 1. Refuse existing final and partial destinations.

@@ -150,6 +150,7 @@ Implementation review commands:
 
 ```text
 nix develop -c cargo run -- cache
+nix develop -c cargo run -- --cache-dir /tmp/music-groomer-smoke cache
 nix develop -c cargo run -- --offline tests/fixtures/audio/seed.flac
 nix develop -c cargo test --test live_provider -- --ignored --nocapture
 ```

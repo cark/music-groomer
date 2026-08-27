@@ -13,6 +13,8 @@ fn sparse_source_inspects_then_explains_why_matching_cannot_continue() {
 
     let output = Command::new(binary())
         .arg("--offline")
+        .arg("--cache-dir")
+        .arg(temporary.path().join("provider-cache"))
         .arg(&source)
         .env("XDG_CACHE_HOME", temporary.path().join("cache-home"))
         .env("XDG_CONFIG_HOME", temporary.path().join("config-home"))

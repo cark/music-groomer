@@ -49,6 +49,19 @@ nix develop -c cargo run -- cache
 nix develop -c cargo run -- cache clear
 ```
 
+Smoke tests and other isolated runs can select an exact cache directory for the
+whole invocation. Every cache operation uses the override, including status and
+clearing:
+
+```text
+nix develop -c cargo run -- --cache-dir /tmp/music-groomer-smoke cache
+nix develop -c cargo run -- --cache-dir /tmp/music-groomer-smoke cache clear
+nix develop -c cargo run -- --cache-dir /tmp/music-groomer-smoke SOURCE
+```
+
+The caller owns the temporary directory's lifecycle. music-groomer marks its
+cache and refuses to claim or clear a non-empty unmarked directory.
+
 The cache defaults to 256 MiB. It can be changed in the platform user config
 file with, for example, `cache_max_mib = 128`. Metadata is fresh for 30 days;
 stale entries remain available as an explicit fallback and least-recently used

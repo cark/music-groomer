@@ -68,6 +68,11 @@ configurable 256 MiB default maximum and prune least-recently used entries.
 Stale metadata remains eligible as a provider-unavailable fallback until the
 size bound evicts it. Test eviction under a tiny deterministic limit.
 
+Allow a per-invocation exact cache-directory override for isolated smoke tests.
+Apply the override uniformly to grooming and every cache command. Refuse to
+claim or clear a non-empty directory without music-groomer's ownership marker;
+the test harness remains responsible for its temporary directory's lifecycle.
+
 ## Apply and cleanup
 
 Build and validate in the operating system's temporary directory after a space

@@ -204,6 +204,12 @@ impl ProviderCache {
         }
         let marker = self.root.join(MARKER);
         if !marker.is_file() {
+            let mut entries = fs::read_dir(&self.root)
+                .map_err(|error| CacheError::Io(self.root.clone(), error))?;
+            if entries.next().is_none() {
+                return fs::remove_dir(&self.root)
+                    .map_err(|error| CacheError::Io(self.root.clone(), error));
+            }
             return Err(CacheError::NotOwned(self.root.clone()));
         }
         fs::remove_dir_all(&self.root).map_err(|error| CacheError::Io(self.root.clone(), error))
@@ -225,6 +231,11 @@ impl ProviderCache {
             return Err(CacheError::NotOwned(self.root.clone()));
         }
         if !marker.exists() {
+            let mut entries = fs::read_dir(&self.root)
+                .map_err(|error| CacheError::Io(self.root.clone(), error))?;
+            if entries.next().is_some() {
+                return Err(CacheError::NotOwned(self.root.clone()));
+            }
             fs::write(&marker, "music-groomer provider cache\n")
                 .map_err(|error| CacheError::Io(marker, error))?;
         }

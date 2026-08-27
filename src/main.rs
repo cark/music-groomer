@@ -26,7 +26,8 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), String> {
-    let mut arguments = env::args().skip(1);
+    let (arguments, cache_directory) = parse_global_options(env::args().skip(1))?;
+    let mut arguments = arguments.into_iter();
     let Some(command) = arguments.next() else {
         print_help();
         return Ok(());
@@ -36,13 +37,38 @@ fn run() -> Result<(), String> {
         return Ok(());
     }
     if command == "demo" {
+        if cache_directory.is_some() {
+            return Err("--cache-dir does not apply to the simulated demo".to_owned());
+        }
         return run_demo(arguments);
     }
     if command == "cache" {
-        return run_cache(arguments);
+        return run_cache(arguments, cache_directory);
     }
     let (source, offline) = parse_source(command, arguments)?;
-    run_inspection(source, offline)
+    run_inspection(source, offline, cache_directory)
+}
+
+fn parse_global_options(
+    arguments: impl Iterator<Item = String>,
+) -> Result<(Vec<String>, Option<PathBuf>), String> {
+    let mut remaining = Vec::new();
+    let mut cache_directory = None;
+    let mut arguments = arguments.peekable();
+    while let Some(argument) = arguments.next() {
+        if argument == "--cache-dir" {
+            if cache_directory.is_some() {
+                return Err("--cache-dir may be specified only once".to_owned());
+            }
+            let path = arguments
+                .next()
+                .ok_or_else(|| "--cache-dir needs a directory".to_owned())?;
+            cache_directory = Some(PathBuf::from(path));
+        } else {
+            remaining.push(argument);
+        }
+    }
+    Ok((remaining, cache_directory))
 }
 
 fn parse_source(
@@ -65,18 +91,16 @@ fn parse_source(
         .ok_or_else(|| "--offline needs a SOURCE".to_owned())
 }
 
-fn run_cache(mut arguments: impl Iterator<Item = String>) -> Result<(), String> {
+fn run_cache(
+    mut arguments: impl Iterator<Item = String>,
+    cache_directory: Option<PathBuf>,
+) -> Result<(), String> {
     let action = arguments.next();
     if let Some(extra) = arguments.next() {
         return Err(format!("unexpected cache argument `{extra}`"));
     }
     let config = AppConfig::load().map_err(|error| error.to_string())?;
-    let cache = ProviderCache::platform_default(Some(
-        config
-            .cache_max_bytes()
-            .map_err(|error| error.to_string())?,
-    ))
-    .map_err(|error| error.to_string())?;
+    let cache = provider_cache(&config, cache_directory)?;
     match action.as_deref() {
         None | Some("status") => show_cache_status(&cache),
         Some("clear") => clear_cache(&cache),
@@ -174,7 +198,11 @@ fn run_demo(mut arguments: impl Iterator<Item = String>) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-fn run_inspection(source: PathBuf, offline: bool) -> Result<(), String> {
+fn run_inspection(
+    source: PathBuf,
+    offline: bool,
+    cache_directory: Option<PathBuf>,
+) -> Result<(), String> {
     let inspection = SourceInspector::default()
         .inspect(&source)
         .map_err(|error| error.to_string())?;
@@ -190,12 +218,7 @@ fn run_inspection(source: PathBuf, offline: bool) -> Result<(), String> {
         inspection_ui::run_before_matching(&mut interaction, &inspection)
             .map_err(|error| format!("terminal interaction failed: {error}"))?;
         let config = AppConfig::load().map_err(|error| error.to_string())?;
-        let cache = ProviderCache::platform_default(Some(
-            config
-                .cache_max_bytes()
-                .map_err(|error| error.to_string())?,
-        ))
-        .map_err(|error| error.to_string())?;
+        let cache = provider_cache(&config, cache_directory)?;
         let mut viewer = SystemArtworkViewer::new();
         let result = guided_matching::run(
             &mut interaction,
@@ -220,17 +243,32 @@ fn run_inspection(source: PathBuf, offline: bool) -> Result<(), String> {
     }
 }
 
+fn provider_cache(
+    config: &AppConfig,
+    cache_directory: Option<PathBuf>,
+) -> Result<ProviderCache, String> {
+    let max_bytes = config
+        .cache_max_bytes()
+        .map_err(|error| error.to_string())?;
+    match cache_directory {
+        Some(directory) => Ok(ProviderCache::new(directory, max_bytes)),
+        None => ProviderCache::platform_default(Some(max_bytes)).map_err(|error| error.to_string()),
+    }
+}
+
 fn print_help() {
     println!("music-groomer 0.1.0 (pre-alpha, through milestone 3a)");
     println!();
     println!("Inspect one album directory or loose audio file without changing it:");
     println!();
     println!("  music-groomer [--offline] SOURCE");
+    println!("  music-groomer --cache-dir DIRECTORY [--offline] SOURCE");
     println!();
     println!("Provider cache maintenance:");
     println!();
     println!("  music-groomer cache");
     println!("  music-groomer cache clear");
+    println!("  music-groomer --cache-dir DIRECTORY cache [clear]");
     println!();
     println!("Destination access and Apply are not implemented yet.");
     println!();
