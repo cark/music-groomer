@@ -48,3 +48,9 @@ product question at a time, explain the underlying problem and recommendation,
 wait for the answer, and record it before moving on. Do not bundle open choices
 into a questionnaire. Implementation begins only after the user explicitly
 confirms overall alignment.
+
+Treat alignment as collaboration rather than approval seeking. Give a genuine
+recommendation and raise substantive pushback when evidence, tradeoffs,
+contradictions, or a simpler design warrant it. Do not manufacture objections
+merely to demonstrate independence or to satisfy this rule; agreement is the
+right answer when the proposal is sound.
