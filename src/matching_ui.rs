@@ -3,7 +3,7 @@ use std::io;
 
 use crate::domain::{Inspection, SourceKind};
 use crate::matching::{MatchDecision, RankedCandidate};
-use crate::terminal::{Interaction, TextStyle};
+use crate::terminal::{Interaction, SemanticRole, UiLine};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MetadataSelection {
@@ -19,11 +19,12 @@ pub fn choose(
 ) -> io::Result<MetadataSelection> {
     match decision {
         MatchDecision::Selected { selected, .. } => {
-            interaction.show(&format!(
-                "\n{} {}",
-                interaction.styled(TextStyle::Success, "Clear metadata match:"),
-                interaction.styled(TextStyle::Value, &selected.candidate.human_label())
-            ))?;
+            interaction.blank()?;
+            interaction.present(
+                UiLine::new()
+                    .with(SemanticRole::Success, "Clear metadata match: ")
+                    .with(SemanticRole::Selected, selected.candidate.human_label()),
+            )?;
             Ok(MetadataSelection::Provider(selected))
         }
         MatchDecision::NeedsChoice(candidates) => {
@@ -38,10 +39,8 @@ fn choose_candidate(
     inspection: &Inspection,
     candidates: Vec<RankedCandidate>,
 ) -> io::Result<MetadataSelection> {
-    interaction.show(&format!(
-        "\n{}",
-        interaction.styled(TextStyle::Warning, "Metadata needs your choice")
-    ))?;
+    interaction.blank()?;
+    interaction.warning("Metadata needs your choice")?;
     if candidates.len() == 1 {
         return confirm_only_candidate(interaction, inspection, &candidates[0]);
     }
@@ -57,7 +56,10 @@ fn choose_candidate(
             actions.push("[e] Use existing tags (unverified)".into());
         }
         actions.push("[c] Cancel".into());
-        let answer = interaction.ask(&format!("Choose {}: ", actions.join("  ")))?;
+        let answer = interaction.prompt(UiLine::menu_prompt(format!(
+            "Choose {}: ",
+            actions.join("  ")
+        )))?;
         if let Ok(index) = answer.parse::<usize>()
             && (1..=shown).contains(&index)
         {
@@ -72,7 +74,7 @@ fn choose_candidate(
                 return Ok(MetadataSelection::ExistingTags);
             }
             "c" | "cancel" | "q" | "quit" => return Ok(MetadataSelection::Cancelled),
-            _ => interaction.show("Please choose one of the displayed actions.")?,
+            _ => interaction.error("Please choose one of the displayed actions.")?,
         }
     }
 }
@@ -89,9 +91,9 @@ fn confirm_only_candidate(
         } else {
             ""
         };
-        let answer = interaction.ask(&format!(
+        let answer = interaction.prompt(UiLine::menu_prompt(format!(
             "Use this uncertain match? [y/N]  [t] Track-list details{existing}: "
-        ))?;
+        )))?;
         match answer.to_ascii_lowercase().as_str() {
             "y" | "yes" => {
                 return Ok(MetadataSelection::Provider(Box::new(candidate.clone())));
@@ -105,7 +107,7 @@ fn confirm_only_candidate(
             "" | "n" | "no" | "c" | "cancel" | "q" | "quit" => {
                 return Ok(MetadataSelection::Cancelled);
             }
-            _ => interaction.show("Please answer Yes, No, Details, or Existing tags.")?,
+            _ => interaction.error("Please answer Yes, No, Details, or Existing tags.")?,
         }
     }
 }
@@ -116,30 +118,31 @@ pub fn revise(
     candidates: &[RankedCandidate],
     current: &MetadataSelection,
 ) -> io::Result<MetadataSelection> {
-    interaction.show("\nMetadata selection:")?;
+    interaction.blank()?;
+    interaction.heading("Metadata selection")?;
     match current {
         MetadataSelection::Provider(selected) => {
-            interaction.show(&format!("  Current: {}", selected.candidate.human_label()))?;
-            interaction.show("  Evidence:")?;
+            interaction.field("Current", selected.candidate.human_label())?;
+            interaction.heading("  Evidence")?;
             for reason in &selected.reasons {
-                interaction.show(&format!("    - {}", reason.summary))?;
+                interaction.prose(format!("    - {}", reason.summary))?;
             }
-            interaction.show(&format!(
-                "  MusicBrainz release group: {}",
+            interaction.field(
+                "MusicBrainz release group",
                 selected
                     .candidate
                     .release_group_id
                     .as_deref()
-                    .unwrap_or("unknown")
-            ))?;
+                    .unwrap_or("unknown"),
+            )?;
         }
         MetadataSelection::ExistingTags => {
-            interaction.show("  Current: existing source tags (unverified)")?
+            interaction.field("Current", "existing source tags (unverified)")?
         }
         MetadataSelection::Cancelled => return Ok(current.clone()),
     }
     if candidates.is_empty() {
-        interaction.show("  No usable provider alternatives are available.")?;
+        interaction.warning("  No usable provider alternatives are available.")?;
     } else {
         show_candidates(interaction, candidates, candidates.len())?;
     }
@@ -149,9 +152,9 @@ pub fn revise(
         } else {
             ""
         };
-        let answer = interaction.ask(&format!(
+        let answer = interaction.prompt(UiLine::menu_prompt(format!(
             "Choose a number to change, [t] Track-list details{existing}  [b] Back: "
-        ))?;
+        )))?;
         if let Ok(index) = answer.parse::<usize>()
             && (1..=candidates.len()).contains(&index)
         {
@@ -165,7 +168,7 @@ pub fn revise(
                 return Ok(MetadataSelection::ExistingTags);
             }
             "" | "b" | "back" => return Ok(current.clone()),
-            _ => interaction.show("Please choose a displayed metadata action.")?,
+            _ => interaction.error("Please choose a displayed metadata action.")?,
         }
     }
 }
@@ -176,12 +179,11 @@ fn show_candidates(
     shown: usize,
 ) -> io::Result<()> {
     for (index, candidate) in candidates.iter().take(shown).enumerate() {
-        interaction.show(&format!(
-            "  {}. {}",
-            index + 1,
-            candidate.candidate.human_label()
+        interaction.present(UiLine::menu_item(
+            format!("{}.", index + 1),
+            candidate.candidate.human_label(),
         ))?;
-        interaction.show(&format!("     {}", track_list_summary(candidate)))?;
+        interaction.prose(format!("     {}", track_list_summary(candidate)))?;
     }
     Ok(())
 }
@@ -207,13 +209,13 @@ fn show_track_lists(
     candidates: &[RankedCandidate],
 ) -> io::Result<()> {
     for (candidate_index, candidate) in candidates.iter().enumerate() {
-        interaction.show(&format!(
-            "\n  {}. {}",
-            candidate_index + 1,
-            candidate.candidate.human_label()
+        interaction.blank()?;
+        interaction.present(UiLine::menu_item(
+            format!("{}.", candidate_index + 1),
+            candidate.candidate.human_label(),
         ))?;
         for track in &candidate.candidate.tracks {
-            interaction.show(&format!(
+            interaction.prose(format!(
                 "     {}-{:02} {} — {}",
                 track.position.disc, track.position.track, track.title, track.artist_credit.display
             ))?;
@@ -228,31 +230,26 @@ fn choose_fallback(
 ) -> io::Result<MetadataSelection> {
     match coherent_existing_metadata(inspection) {
         Ok(()) => {
-            interaction.show(&format!(
-                "\n{}",
-                interaction.styled(
-                    TextStyle::Warning,
-                    "No defensible MusicBrainz match was found."
-                )
-            ))?;
+            interaction.blank()?;
+            interaction.warning("No defensible MusicBrainz match was found.")?;
             loop {
-                let answer = interaction.ask(
+                let answer = interaction.prompt(UiLine::menu_prompt(
                     "Use the internally coherent existing tags as unverified metadata? [Y/n]: ",
-                )?;
+                ))?;
                 match answer.to_ascii_lowercase().as_str() {
                     "" | "y" | "yes" => return Ok(MetadataSelection::ExistingTags),
                     "n" | "no" | "c" | "cancel" => return Ok(MetadataSelection::Cancelled),
-                    _ => interaction.show("Please answer Yes or No.")?,
+                    _ => interaction.error("Please answer Yes or No.")?,
                 }
             }
         }
         Err(problems) => {
-            interaction.show(&format!(
-                "\n{} No provider match is available and existing metadata is incomplete:",
-                interaction.styled(TextStyle::Error, "Cannot build reliable metadata.")
-            ))?;
+            interaction.blank()?;
+            interaction.error(
+                "Cannot build reliable metadata. No provider match is available and existing metadata is incomplete:",
+            )?;
             for problem in problems {
-                interaction.show(&format!("  - {problem}"))?;
+                interaction.prose(format!("  - {problem}"))?;
             }
             Ok(MetadataSelection::Cancelled)
         }
@@ -361,14 +358,14 @@ mod tests {
     }
 
     impl Interaction for Scripted {
-        fn show(&mut self, text: &str) -> io::Result<()> {
-            self.transcript.push_str(text);
+        fn present(&mut self, line: UiLine) -> io::Result<()> {
+            self.transcript.push_str(&line.plain_text());
             self.transcript.push('\n');
             Ok(())
         }
 
-        fn ask(&mut self, prompt: &str) -> io::Result<String> {
-            self.transcript.push_str(prompt);
+        fn prompt(&mut self, prompt: UiLine) -> io::Result<String> {
+            self.transcript.push_str(&prompt.plain_text());
             Ok(self.answers.pop_front().unwrap_or_default())
         }
     }

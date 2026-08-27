@@ -8,7 +8,7 @@ mod tests;
 use std::io;
 
 use crate::source::SourceInspection;
-use crate::terminal::{Interaction, TextStyle};
+use crate::terminal::{Interaction, SemanticRole, UiLine};
 
 pub fn run(interaction: &mut impl Interaction, inspection: &SourceInspection) -> io::Result<()> {
     run_menu(interaction, inspection, "[d] Done", false)
@@ -29,19 +29,21 @@ fn run_menu(
 ) -> io::Result<()> {
     summary::show(interaction, inspection, continues_to_metadata)?;
     loop {
-        let review = interaction.styled(TextStyle::Label, "[r] Review files and tags");
-        let done = interaction.styled(TextStyle::Label, completion);
         let answer = interaction
-            .ask(&format!("Choose: {review}  {done}: "))?
+            .prompt(
+                UiLine::new()
+                    .with(SemanticRole::Prompt, "Choose: ")
+                    .with(SemanticRole::MenuKey, "[r]")
+                    .with(SemanticRole::Prompt, " Review files and tags  ")
+                    .with(SemanticRole::MenuKey, &completion[..3])
+                    .with(SemanticRole::Prompt, &completion[3..])
+                    .with(SemanticRole::Prompt, ": "),
+            )?
             .to_ascii_lowercase();
         match answer.as_str() {
             "r" | "review" => details::show(interaction, inspection)?,
             "" | "c" | "continue" | "d" | "done" | "q" | "quit" => return Ok(()),
-            _ => render::show_styled(
-                interaction,
-                TextStyle::Error,
-                "Please choose Review files and tags or Done.",
-            )?,
+            _ => interaction.error("Please choose Review files and tags or Done.")?,
         }
     }
 }

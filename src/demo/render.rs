@@ -2,24 +2,19 @@ use crate::domain::SourceKind;
 use crate::plan::{GroomingPlan, MatchSelection, MetadataBasis};
 
 use super::fixtures::DemoData;
-use super::{DemoError, Interaction, TextStyle};
+use super::{DemoError, Interaction, SemanticRole, UiLine};
 
 pub(super) fn show_inspection(
     interaction: &mut impl Interaction,
     data: &DemoData,
 ) -> Result<(), DemoError> {
-    show_styled(interaction, TextStyle::Heading, "Inspection")?;
-    show_label_value(
-        interaction,
-        "Source",
-        &data.inspection.source_label,
-        TextStyle::Path,
-    )?;
+    interaction.heading("Inspection")?;
+    interaction.path_field("Source", &data.inspection.source_label)?;
     let kind = match data.inspection.kind {
         SourceKind::AlbumDirectory => "album directory",
         SourceKind::LooseFile => "one loose audio track",
     };
-    interaction.show(&format!(
+    interaction.prose(format!(
         "  Found: {} {} file(s); treating this as {kind}.",
         data.inspection.tracks.len(),
         data.extensions
@@ -27,12 +22,8 @@ pub(super) fn show_inspection(
             .map_or("audio", |extension| extension.as_str())
             .to_ascii_uppercase()
     ))?;
-    show_styled(
-        interaction,
-        TextStyle::Success,
-        "  ✓ Source remains read-only.",
-    )?;
-    interaction.show("")?;
+    interaction.success("  ✓ Source remains read-only.")?;
+    interaction.blank()?;
     Ok(())
 }
 
@@ -40,63 +31,53 @@ pub(super) fn show_summary(
     interaction: &mut impl Interaction,
     plan: &GroomingPlan,
 ) -> Result<(), DemoError> {
-    show_styled(interaction, TextStyle::Heading, "Preview")?;
+    interaction.heading("Preview")?;
     match &plan.metadata {
         MetadataBasis::MusicBrainz(release) => {
-            show_label_value(
-                interaction,
-                "Metadata",
-                &release.human_label(),
-                TextStyle::Value,
-            )?;
+            interaction.field("Metadata", release.human_label())?;
             match plan.match_selection {
                 MatchSelection::Automatic => {
                     if let Some(reason) = plan.match_reasons.first() {
-                        show_label_value(interaction, "Why automatic", reason, TextStyle::Success)?;
+                        interaction.present(
+                            UiLine::new()
+                                .with(SemanticRole::Prose, "  ")
+                                .with(SemanticRole::FieldName, "Why automatic")
+                                .with(SemanticRole::Prose, ": ")
+                                .with(SemanticRole::Success, reason),
+                        )?;
                     }
                 }
                 MatchSelection::UserChosen => {
-                    interaction.show("  Decision: selected by you from the plausible matches")?
+                    interaction.field("Decision", "selected by you from the plausible matches")?
                 }
                 MatchSelection::ExistingTags => {}
             }
         }
-        MetadataBasis::ExistingTags => show_label_value(
-            interaction,
-            "Metadata",
-            "existing tags (not verified against MusicBrainz)",
-            TextStyle::Warning,
-        )?,
+        MetadataBasis::ExistingTags => {
+            interaction.warning("  Metadata: existing tags (not verified against MusicBrainz)")?
+        }
     }
-    show_label_value(
-        interaction,
-        "Destination",
-        &plan.destination.display().to_string(),
-        TextStyle::Path,
+    interaction.path_field("Destination", plan.destination.display().to_string())?;
+    interaction.field("Artwork", plan.artwork.description())?;
+    interaction.field(
+        "Changes",
+        format!(
+            "{} tag value(s), {} filename(s)",
+            plan.tag_change_count(),
+            plan.filename_change_count()
+        ),
     )?;
-    show_label_value(
-        interaction,
-        "Artwork",
-        &plan.artwork.description(),
-        TextStyle::Value,
+    interaction.field(
+        "Preserved",
+        format!(
+            "embedded artwork in {} track(s)",
+            plan.preserved_embedded_artwork
+        ),
     )?;
-    interaction.show(&format!(
-        "  Changes: {} tag value(s), {} filename(s)",
-        plan.tag_change_count(),
-        plan.filename_change_count()
-    ))?;
-    interaction.show(&format!(
-        "  Preserved: embedded artwork in {} track(s)",
-        plan.preserved_embedded_artwork
-    ))?;
     for warning in &plan.warnings {
-        show_styled(
-            interaction,
-            TextStyle::Warning,
-            &format!("  Warning: {}", warning.summary),
-        )?;
+        interaction.warning(format!("  Warning: {}", warning.summary))?;
     }
-    interaction.show("")?;
+    interaction.blank()?;
     Ok(())
 }
 
@@ -104,48 +85,52 @@ pub(super) fn show_details(
     interaction: &mut impl Interaction,
     plan: &GroomingPlan,
 ) -> Result<(), DemoError> {
-    interaction.show("")?;
-    show_styled(interaction, TextStyle::Heading, "All planned changes")?;
+    interaction.blank()?;
+    interaction.heading("All planned changes")?;
     for track in &plan.tracks {
-        show_styled(
-            interaction,
-            TextStyle::Label,
-            &format!("  {}", track.source_name),
-        )?;
-        let path = interaction.styled(TextStyle::Path, &track.destination.display().to_string());
-        interaction.show(&format!("    → {path}"))?;
+        interaction
+            .present(UiLine::new().with(SemanticRole::Value, format!("  {}", track.source_name)))?;
+        interaction.present(UiLine::new().with(
+            SemanticRole::Path,
+            format!("    → {}", track.destination.display()),
+        ))?;
         if track.tag_changes.is_empty() {
-            interaction.show("    tags unchanged")?;
+            interaction.prose("    tags unchanged")?;
         } else {
             for change in &track.tag_changes {
-                let field = interaction.styled(TextStyle::Label, &change.field.to_string());
-                let before = interaction.styled(
-                    TextStyle::Warning,
-                    change.before.as_deref().unwrap_or("(missing)"),
-                );
-                let after = interaction.styled(TextStyle::Success, &change.after);
-                interaction.show(&format!("    {field}: {before} → {after}"))?;
+                interaction.present(
+                    UiLine::new()
+                        .with(SemanticRole::Prose, "    ")
+                        .with(SemanticRole::FieldName, change.field.to_string())
+                        .with(SemanticRole::Prose, ": ")
+                        .with(
+                            SemanticRole::Warning,
+                            change.before.as_deref().unwrap_or("(missing)"),
+                        )
+                        .with(SemanticRole::Prose, " → ")
+                        .with(SemanticRole::Success, &change.after),
+                )?;
             }
         }
-        show_styled(
-            interaction,
-            TextStyle::Success,
-            "    ✓ embedded artwork preserved unchanged",
-        )?;
+        interaction.success("    ✓ embedded artwork preserved unchanged")?;
     }
     if let Some(output_name) = &plan.artwork.output_name {
-        let artwork = interaction.styled(TextStyle::Value, &plan.artwork.label);
-        let output = interaction.styled(TextStyle::Path, output_name);
-        interaction.show(&format!("  Sidecar artwork: {artwork} → {output}"))?;
-    }
-    for warning in &plan.warnings {
-        show_styled(
-            interaction,
-            TextStyle::Warning,
-            &format!("  Warning: {} — {}", warning.summary, warning.detail),
+        interaction.present(
+            UiLine::new()
+                .with(SemanticRole::FieldName, "  Sidecar artwork")
+                .with(SemanticRole::Prose, ": ")
+                .with(SemanticRole::Value, &plan.artwork.label)
+                .with(SemanticRole::Prose, " → ")
+                .with(SemanticRole::Path, output_name),
         )?;
     }
-    interaction.show("")?;
+    for warning in &plan.warnings {
+        interaction.warning(format!(
+            "  Warning: {} — {}",
+            warning.summary, warning.detail
+        ))?;
+    }
+    interaction.blank()?;
     Ok(())
 }
 
@@ -156,87 +141,63 @@ pub(super) fn choose_artwork(
     let mut choices = vec![plan.artwork.clone()];
     choices.extend(plan.artwork_alternatives.clone());
     if choices.len() == 1 {
-        interaction.show("No alternative artwork is available for this preview.")?;
+        interaction.prose("No alternative artwork is available for this preview.")?;
         return Ok(plan);
     }
 
-    interaction.show("")?;
-    show_styled(interaction, TextStyle::Heading, "Artwork choices")?;
+    interaction.blank()?;
+    interaction.heading("Artwork choices")?;
     for (index, artwork) in choices.iter().enumerate() {
-        let selected = if artwork == &plan.artwork {
-            interaction.styled(TextStyle::Success, " (selected)")
-        } else {
-            String::new()
-        };
-        interaction.show(&format!(
-            "  {}. {}{}",
-            index + 1,
-            artwork.description(),
-            selected
-        ))?;
+        let selected = artwork == &plan.artwork;
+        interaction.present(
+            UiLine::new()
+                .with(SemanticRole::Prose, "  ")
+                .with(SemanticRole::MenuKey, format!("{}.", index + 1))
+                .with(SemanticRole::Prose, " ")
+                .with(
+                    if selected {
+                        SemanticRole::Selected
+                    } else {
+                        SemanticRole::Alternative
+                    },
+                    format!(
+                        "{}{}",
+                        artwork.description(),
+                        if selected { " (selected)" } else { "" }
+                    ),
+                ),
+        )?;
     }
-    interaction.show("  v. View a choice (simulated in this demo)")?;
+    interaction.prose("  v. View a choice (simulated in this demo)")?;
     loop {
-        let answer = interaction.ask("Artwork number, v to view, or b to go back: ")?;
+        let answer = interaction.prompt(UiLine::prompt(
+            "Artwork number, v to view, or b to go back: ",
+        ))?;
         match answer.to_ascii_lowercase().as_str() {
             "b" | "back" => return Ok(plan),
             "v" | "view" => {
-                let number = interaction.ask("View which artwork number? ")?;
+                let number = interaction.prompt(UiLine::prompt("View which artwork number? "))?;
                 if let Ok(index) = number.parse::<usize>()
                     && let Some(artwork) = choices.get(index.saturating_sub(1))
                 {
-                    interaction.show(&format!(
+                    interaction.prose(format!(
                         "Would open {} in the normal image viewer.",
                         artwork.description()
                     ))?;
                     continue;
                 }
-                show_styled(
-                    interaction,
-                    TextStyle::Error,
-                    "Please choose one of the displayed artwork numbers.",
-                )?;
+                interaction.error("Please choose one of the displayed artwork numbers.")?;
             }
             _ => {
                 if let Ok(index) = answer.parse::<usize>()
                     && let Some(artwork) = choices.get(index.saturating_sub(1))
                 {
-                    show_styled(
-                        interaction,
-                        TextStyle::Success,
-                        &format!("Selected: {}", artwork.description()),
-                    )?;
-                    interaction.show("")?;
+                    interaction.success(format!("Selected: {}", artwork.description()))?;
+                    interaction.blank()?;
                     return Ok(plan.with_artwork(artwork.clone()));
                 }
-                show_styled(
-                    interaction,
-                    TextStyle::Error,
-                    "Please choose an artwork number, v, or b.",
-                )?;
+                interaction.error("Please choose an artwork number, v, or b.")?;
             }
         }
     }
-}
-
-pub(super) fn show_styled(
-    interaction: &mut impl Interaction,
-    style: TextStyle,
-    text: &str,
-) -> Result<(), DemoError> {
-    let text = interaction.styled(style, text);
-    interaction.show(&text)?;
-    Ok(())
-}
-
-fn show_label_value(
-    interaction: &mut impl Interaction,
-    label: &str,
-    value: &str,
-    value_style: TextStyle,
-) -> Result<(), DemoError> {
-    let label = interaction.styled(TextStyle::Label, label);
-    let value = interaction.styled(value_style, value);
-    interaction.show(&format!("  {label}: {value}"))?;
-    Ok(())
 }

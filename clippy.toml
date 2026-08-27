@@ -1,0 +1,6 @@
+disallowed-macros = [
+  { path = "std::print", reason = "route human output through semantic terminal presentation" },
+  { path = "std::println", reason = "route human output through semantic terminal presentation" },
+  { path = "std::eprint", reason = "route human output through semantic terminal presentation" },
+  { path = "std::eprintln", reason = "route human output through semantic terminal presentation" },
+]

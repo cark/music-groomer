@@ -12,12 +12,12 @@ use std::path::Path;
 
 use crate::matching::{MatchDecision, MatchPolicy, RankedCandidate};
 use crate::plan::{ApplyReport, GroomingPlan, MatchSelection};
-pub use crate::terminal::{Interaction, StdioInteraction, TextStyle};
+pub use crate::terminal::{Interaction, SemanticRole, StdioInteraction, UiLine};
 
 use destination::DestinationRoot;
 use fixtures::{DemoData, demo_data};
 use planning::{build_plan, coherent_standalone};
-use render::{choose_artwork, show_details, show_inspection, show_styled, show_summary};
+use render::{choose_artwork, show_details, show_inspection, show_summary};
 
 const PRETEND_LIBRARY_ROOT: &str = "/media/music";
 
@@ -75,22 +75,18 @@ pub fn run(
     scenario: Option<DemoScenario>,
     output_root: Option<&Path>,
 ) -> Result<DemoOutcome, DemoError> {
-    show_styled(
-        interaction,
-        TextStyle::Heading,
-        "music-groomer — guided preview demo",
-    )?;
-    interaction.show(
+    interaction.heading("music-groomer — guided preview demo")?;
+    interaction.prose(
         "Simulation only: no music is read or written, no settings are saved, and no network requests are made.",
     )?;
-    interaction.show("")?;
+    interaction.blank()?;
 
     let scenario = match scenario {
         Some(scenario) => scenario,
         None => match choose_scenario(interaction)? {
             Some(scenario) => scenario,
             None => {
-                interaction.show("Cancelled. No files were written.")?;
+                interaction.prose("Cancelled. No files were written.")?;
                 return Ok(DemoOutcome::Cancelled);
             }
         },
@@ -112,7 +108,7 @@ pub fn run(
         ),
         MetadataSelection::ExistingTags => (None, MatchSelection::ExistingTags),
         MetadataSelection::Cancelled => {
-            interaction.show("Cancelled. No files were written.")?;
+            interaction.prose("Cancelled. No files were written.")?;
             return Ok(DemoOutcome::Cancelled);
         }
     };
@@ -132,9 +128,7 @@ pub fn run(
 
     loop {
         show_summary(interaction, &plan)?;
-        let action = interaction
-            .ask(&action_prompt(interaction))?
-            .to_ascii_lowercase();
+        let action = interaction.prompt(action_prompt())?.to_ascii_lowercase();
         match action.as_str() {
             "a" | "apply" => {
                 if confirm_apply(interaction, &plan)? {
@@ -145,70 +139,70 @@ pub fn run(
                         source_unchanged: true,
                         simulated: true,
                     };
-                    interaction.show("")?;
-                    show_styled(
-                        interaction,
-                        TextStyle::Success,
-                        "Demo apply complete. No files were written.",
-                    )?;
-                    interaction.show(&format!(
+                    interaction.blank()?;
+                    interaction.success("Demo apply complete. No files were written.")?;
+                    interaction.prose(format!(
                         "Would validate {} track(s) at {}.",
                         report.tracks_validated,
                         report.destination.display()
                     ))?;
-                    interaction.show("The source would remain untouched.")?;
+                    interaction.prose("The source would remain untouched.")?;
                     return Ok(DemoOutcome::Applied(report));
                 }
-                interaction.show("Apply not confirmed; returning to the preview.")?;
+                interaction.prose("Apply not confirmed; returning to the preview.")?;
             }
             "r" | "review" => show_details(interaction, &plan)?,
             "w" | "artwork" => plan = choose_artwork(interaction, plan)?,
             "d" | "destination" => plan = choose_destination(interaction, plan)?,
             "c" | "cancel" | "q" | "quit" => {
-                interaction.show("Cancelled. No files were written.")?;
+                interaction.prose("Cancelled. No files were written.")?;
                 return Ok(DemoOutcome::Cancelled);
             }
             "" => {}
-            _ => show_styled(
-                interaction,
-                TextStyle::Error,
-                "Please choose Apply, Review, Artwork, Destination, or Cancel.",
-            )?,
+            _ => interaction
+                .error("Please choose Apply, Review, Artwork, Destination, or Cancel.")?,
         }
     }
 }
 
-fn action_prompt(interaction: &impl Interaction) -> String {
-    let apply = interaction.styled(TextStyle::Label, "[a] Apply");
-    let review = interaction.styled(TextStyle::Label, "[r] Review");
-    let artwork = interaction.styled(TextStyle::Label, "[w] Artwork");
-    let destination = interaction.styled(TextStyle::Label, "[d] Destination");
-    let cancel = interaction.styled(TextStyle::Label, "[c] Cancel");
-    format!("Choose: {apply}  {review}  {artwork}  {destination}  {cancel}: ")
+fn action_prompt() -> UiLine {
+    UiLine::new()
+        .with(SemanticRole::Prompt, "Choose: ")
+        .with(SemanticRole::MenuKey, "[a]")
+        .with(SemanticRole::Prompt, " Apply  ")
+        .with(SemanticRole::MenuKey, "[r]")
+        .with(SemanticRole::Prompt, " Review  ")
+        .with(SemanticRole::MenuKey, "[w]")
+        .with(SemanticRole::Prompt, " Artwork  ")
+        .with(SemanticRole::MenuKey, "[d]")
+        .with(SemanticRole::Prompt, " Destination  ")
+        .with(SemanticRole::MenuKey, "[c]")
+        .with(SemanticRole::Prompt, " Cancel: ")
 }
 
 fn choose_scenario(interaction: &mut impl Interaction) -> Result<Option<DemoScenario>, DemoError> {
-    show_styled(
-        interaction,
-        TextStyle::Heading,
-        "Choose a pretend source to explore",
-    )?;
-    interaction.show("  1. Ordinary album with a clear match")?;
-    interaction.show("  2. Collaboration album needing your choice")?;
-    interaction.show("  3. Loose track matched to a single")?;
-    interaction.show("  4. Loose track kept as a standalone track")?;
+    interaction.heading("Choose a pretend source to explore")?;
+    interaction.present(UiLine::menu_item("1.", "Ordinary album with a clear match"))?;
+    interaction.present(UiLine::menu_item(
+        "2.",
+        "Collaboration album needing your choice",
+    ))?;
+    interaction.present(UiLine::menu_item("3.", "Loose track matched to a single"))?;
+    interaction.present(UiLine::menu_item(
+        "4.",
+        "Loose track kept as a standalone track",
+    ))?;
     loop {
-        match interaction.ask("Source [1-4, or c to cancel]: ")?.as_str() {
+        match interaction
+            .prompt(UiLine::menu_prompt("Source [1-4, or c to cancel]: "))?
+            .as_str()
+        {
             "1" => return Ok(Some(DemoScenario::ConfidentAlbum)),
             "2" => return Ok(Some(DemoScenario::AmbiguousCollaboration)),
             "3" => return Ok(Some(DemoScenario::MatchedSingle)),
             "4" => return Ok(Some(DemoScenario::StandaloneTrack)),
             "c" | "C" | "q" | "Q" => return Ok(None),
-            _ => show_styled(
-                interaction,
-                TextStyle::Error,
-                "Please enter 1, 2, 3, 4, or c.",
-            )?,
+            _ => interaction.error("Please enter 1, 2, 3, 4, or c.")?,
         }
     }
 }
@@ -219,65 +213,50 @@ fn select_metadata(
 ) -> Result<MetadataSelection, DemoError> {
     match MatchPolicy::default().decide(&data.inspection, data.candidates.clone()) {
         MatchDecision::Selected { selected, .. } => {
-            let label = interaction.styled(TextStyle::Value, &selected.candidate.human_label());
-            interaction.show(&format!("Matched automatically: {label}"))?;
+            interaction.field("Matched automatically", selected.candidate.human_label())?;
             for reason in selected.reasons.iter().take(3) {
-                show_styled(
-                    interaction,
-                    TextStyle::Success,
-                    &format!("  ✓ {}", reason.summary),
-                )?;
+                interaction.success(format!("  ✓ {}", reason.summary))?;
             }
-            interaction.show("")?;
+            interaction.blank()?;
             Ok(MetadataSelection::Matched {
                 candidate: selected,
                 automatic: true,
             })
         }
         MatchDecision::NeedsChoice(candidates) => {
-            show_styled(
-                interaction,
-                TextStyle::Warning,
-                "I found more than one plausible release. Which looks right?",
-            )?;
+            interaction.warning("I found more than one plausible release. Which looks right?")?;
             for (index, candidate) in candidates.iter().enumerate() {
-                interaction.show(&format!(
-                    "  {}. {}",
-                    index + 1,
-                    candidate.candidate.human_label()
+                interaction.present(UiLine::menu_item(
+                    format!("{}.", index + 1),
+                    candidate.candidate.human_label(),
                 ))?;
             }
             loop {
-                let answer = interaction.ask("Release number, or c to cancel: ")?;
+                let answer =
+                    interaction.prompt(UiLine::prompt("Release number, or c to cancel: "))?;
                 if matches!(answer.as_str(), "c" | "C" | "q" | "Q") {
                     return Ok(MetadataSelection::Cancelled);
                 }
                 if let Ok(index) = answer.parse::<usize>()
                     && let Some(candidate) = candidates.get(index.saturating_sub(1))
                 {
-                    let label =
-                        interaction.styled(TextStyle::Value, &candidate.candidate.human_label());
-                    interaction.show(&format!("Using: {label}"))?;
-                    interaction.show("")?;
+                    interaction.field("Using", candidate.candidate.human_label())?;
+                    interaction.blank()?;
                     return Ok(MetadataSelection::Matched {
                         candidate: Box::new(candidate.clone()),
                         automatic: false,
                     });
                 }
-                show_styled(
-                    interaction,
-                    TextStyle::Error,
-                    "Please enter one of the displayed release numbers, or c.",
-                )?;
+                interaction.error("Please enter one of the displayed release numbers, or c.")?;
             }
         }
         MatchDecision::NoUsableMatch(_) => {
             if coherent_standalone(data) {
-                interaction.show("No matching single was found.")?;
-                interaction.show(
+                interaction.warning("No matching single was found.")?;
+                interaction.prose(
                     "The existing artist and title are coherent, so this can remain a standalone track.",
                 )?;
-                interaction.show("")?;
+                interaction.blank()?;
                 Ok(MetadataSelection::ExistingTags)
             } else {
                 Err(DemoError::InvalidDemoData(
@@ -301,74 +280,54 @@ fn choose_destination(
     interaction: &mut impl Interaction,
     plan: GroomingPlan,
 ) -> Result<GroomingPlan, DemoError> {
-    interaction.show("")?;
-    show_styled(interaction, TextStyle::Heading, "Change destination")?;
-    interaction.show(&format!(
-        "  Current root: {}",
-        interaction.styled(
-            TextStyle::Path,
-            &plan.destination_root.display().to_string()
-        )
-    ))?;
-    interaction.show("The new root must already exist. Enter b to go back.")?;
+    interaction.blank()?;
+    interaction.heading("Change destination")?;
+    interaction.path_field("Current root", plan.destination_root.display().to_string())?;
+    interaction.prose("The new root must already exist. Enter b to go back.")?;
 
     loop {
-        let answer = interaction.ask("Destination root: ")?;
+        let answer = interaction.prompt(UiLine::prompt("Destination root: "))?;
         if matches!(answer.to_ascii_lowercase().as_str(), "b" | "back") {
             return Ok(plan);
         }
         let root = match DestinationRoot::existing(&answer) {
             Ok(root) => root,
             Err(error) => {
-                show_styled(
-                    interaction,
-                    TextStyle::Error,
-                    &format!("Not usable: {error}"),
-                )?;
+                interaction.error(format!("Not usable: {error}"))?;
                 continue;
             }
         };
         let proposed = match root.relocate(plan.clone()) {
             Ok(proposed) => proposed,
             Err(error) => {
-                show_styled(
-                    interaction,
-                    TextStyle::Error,
-                    &format!("Not usable: {error}"),
-                )?;
+                interaction.error(format!("Not usable: {error}"))?;
                 continue;
             }
         };
-        show_styled(interaction, TextStyle::Success, "Destination is valid.")?;
-        interaction.show(&format!(
-            "  Resulting album: {}",
-            interaction.styled(TextStyle::Path, &proposed.destination.display().to_string())
-        ))?;
+        interaction.success("Destination is valid.")?;
+        interaction.path_field(
+            "Resulting album",
+            proposed.destination.display().to_string(),
+        )?;
 
         loop {
             match interaction
-                .ask("Choose: [o] Use once  [s] Use and save as default  [b] Go back: ")?
+                .prompt(UiLine::menu_prompt(
+                    "Choose: [o] Use once  [s] Use and save as default  [b] Go back: ",
+                ))?
                 .to_ascii_lowercase()
                 .as_str()
             {
                 "o" | "once" => return Ok(proposed),
                 "s" | "save" => {
-                    show_styled(
-                        interaction,
-                        TextStyle::Success,
-                        &format!(
-                            "Demo only: would save {} as the default destination.",
-                            root.path().display()
-                        ),
-                    )?;
+                    interaction.success(format!(
+                        "Demo only: would save {} as the default destination.",
+                        root.path().display()
+                    ))?;
                     return Ok(proposed);
                 }
                 "b" | "back" => return Ok(plan),
-                _ => show_styled(
-                    interaction,
-                    TextStyle::Error,
-                    "Please choose Use once, Save as default, or Go back.",
-                )?,
+                _ => interaction.error("Please choose Use once, Save as default, or Go back.")?,
             }
         }
     }
@@ -380,15 +339,15 @@ fn confirm_apply(
 ) -> Result<bool, DemoError> {
     loop {
         let answer = interaction
-            .ask(&format!(
+            .prompt(UiLine::menu_prompt(format!(
                 "Apply this exact plan to {}? [Y/n]: ",
                 plan.destination.display()
-            ))?
+            )))?
             .to_ascii_lowercase();
         match answer.as_str() {
             "" | "y" | "yes" => return Ok(true),
             "n" | "no" => return Ok(false),
-            _ => show_styled(interaction, TextStyle::Error, "Please answer yes or no.")?,
+            _ => interaction.error("Please answer yes or no.")?,
         }
     }
 }

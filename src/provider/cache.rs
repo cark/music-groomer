@@ -12,7 +12,7 @@ use super::{DEFAULT_CACHE_MAX_BYTES, METADATA_FRESH_DAYS, ProviderSearch};
 use super::{ProviderArtwork, cover_art_archive};
 use crate::domain::CandidateRelease;
 
-const CACHE_SCHEMA: u8 = 2;
+const CACHE_SCHEMA: u8 = 3;
 const MARKER: &str = ".music-groomer-cache";
 static WRITE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 

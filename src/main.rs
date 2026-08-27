@@ -1,3 +1,5 @@
+#![deny(clippy::disallowed_macros)]
+
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -13,7 +15,7 @@ use music_groomer::provider::{
     CoverArtArchive, MusicBrainzProvider, ProviderCache, source_inspection,
 };
 use music_groomer::source::SourceInspector;
-use music_groomer::terminal::StdioInteraction;
+use music_groomer::terminal::{Interaction, StdioInteraction, UiLine};
 
 mod cli;
 
@@ -23,7 +25,19 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
-            eprintln!("music-groomer: {message}");
+            let diagnostic = format!("music-groomer: {message}");
+            let render_failed = {
+                let stdin = io::stdin();
+                let stderr = io::stderr();
+                let styling = stderr.is_terminal() && std::env::var_os("NO_COLOR").is_none();
+                let mut interaction = StdioInteraction::new(stdin.lock(), stderr.lock(), styling);
+                interaction.error(&diagnostic).is_err()
+            };
+            if render_failed {
+                use std::io::Write as _;
+                let _ = io::stderr().write_all(diagnostic.as_bytes());
+                let _ = io::stderr().write_all(b"\n");
+            }
             ExitCode::FAILURE
         }
     }
@@ -46,7 +60,10 @@ fn run() -> Result<(), String> {
                 Cli::command()
                     .print_help()
                     .map_err(|error| error.to_string())?;
-                println!();
+                use std::io::Write as _;
+                io::stdout()
+                    .write_all(b"\n")
+                    .map_err(|error| error.to_string())?;
                 Ok(())
             }
         },
@@ -66,24 +83,36 @@ fn show_cache_status(cache: &ProviderCache) -> Result<(), String> {
     let status = cache
         .status(std::time::SystemTime::now())
         .map_err(|error| error.to_string())?;
-    println!("music-groomer provider cache");
-    println!("  Location: {}", status.location.display());
-    println!(
-        "  Usage: {} / {}",
-        byte_count(status.total_bytes),
-        byte_count(status.max_bytes)
-    );
-    println!(
-        "  Metadata: {} fresh, {} stale",
-        status.fresh_metadata, status.stale_metadata
-    );
-    println!(
-        "  Artwork: {} images, {}; {} confirmed absent",
-        status.artwork_entries,
-        byte_count(status.artwork_bytes),
-        status.confirmed_artwork_absences
-    );
-    println!("  Damaged entries: {}", status.damaged_entries);
+    with_stdio_interaction(|interaction| {
+        interaction.heading("music-groomer provider cache")?;
+        interaction.path_field("Location", status.location.display().to_string())?;
+        interaction.field(
+            "Usage",
+            format!(
+                "{} / {}",
+                byte_count(status.total_bytes),
+                byte_count(status.max_bytes)
+            ),
+        )?;
+        interaction.field(
+            "Metadata",
+            format!(
+                "{} fresh, {} stale",
+                status.fresh_metadata, status.stale_metadata
+            ),
+        )?;
+        interaction.field(
+            "Artwork",
+            format!(
+                "{} images, {}; {} confirmed absent",
+                status.artwork_entries,
+                byte_count(status.artwork_bytes),
+                status.confirmed_artwork_absences
+            ),
+        )?;
+        interaction.field("Damaged entries", status.damaged_entries.to_string())
+    })
+    .map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -91,23 +120,32 @@ fn clear_cache(cache: &ProviderCache) -> Result<(), String> {
     let status = cache
         .status(std::time::SystemTime::now())
         .map_err(|error| error.to_string())?;
-    println!("Clear only music-groomer's provider cache?");
-    println!("  Path: {}", status.location.display());
-    println!("  Current size: {}", byte_count(status.total_bytes));
-    print!("Continue? [y/N]: ");
-    use std::io::Write as _;
-    io::stdout().flush().map_err(|error| error.to_string())?;
-    let mut answer = String::new();
-    io::stdin()
-        .read_line(&mut answer)
-        .map_err(|error| error.to_string())?;
+    let answer = with_stdio_interaction(|interaction| {
+        interaction.heading("Clear only music-groomer's provider cache?")?;
+        interaction.path_field("Path", status.location.display().to_string())?;
+        interaction.field("Current size", byte_count(status.total_bytes))?;
+        interaction.prompt(UiLine::menu_prompt("Continue? [y/N]: "))
+    })
+    .map_err(|error| error.to_string())?;
     if !matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
-        println!("Cache left unchanged.");
+        with_stdio_interaction(|interaction| interaction.prose("Cache left unchanged."))
+            .map_err(|error| error.to_string())?;
         return Ok(());
     }
     cache.clear().map_err(|error| error.to_string())?;
-    println!("Provider cache cleared.");
+    with_stdio_interaction(|interaction| interaction.success("Provider cache cleared."))
+        .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+fn with_stdio_interaction<T>(
+    action: impl FnOnce(&mut StdioInteraction<io::StdinLock<'_>, io::StdoutLock<'_>>) -> io::Result<T>,
+) -> io::Result<T> {
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    let styling = stdout.is_terminal() && std::env::var_os("NO_COLOR").is_none();
+    let mut interaction = StdioInteraction::new(stdin.lock(), stdout.lock(), styling);
+    action(&mut interaction)
 }
 
 fn byte_count(bytes: u64) -> String {

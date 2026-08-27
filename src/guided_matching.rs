@@ -11,7 +11,7 @@ use crate::provider::{
     equivalent_groomed_result, source_inspection,
 };
 use crate::source::SourceInspection;
-use crate::terminal::{Interaction, TextStyle};
+use crate::terminal::{Interaction, SemanticRole, UiLine};
 
 pub struct GuidedMatchResult {
     pub metadata: MetadataSelection,
@@ -46,19 +46,11 @@ pub fn run<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
     viewer: &mut V,
 ) -> io::Result<GuidedMatchResult> {
     let (inspection, search) = source_inspection(source);
-    interaction.show("")?;
+    interaction.blank()?;
     if offline {
-        show_styled(
-            interaction,
-            TextStyle::Heading,
-            "Metadata lookup (offline: providers will not be contacted)",
-        )?;
+        interaction.heading("Metadata lookup (offline: providers will not be contacted)")?;
     } else {
-        show_styled(
-            interaction,
-            TextStyle::Heading,
-            "Checking metadata and provider cache",
-        )?;
+        interaction.heading("Checking metadata and provider cache")?;
     }
 
     let mut metadata_resolver = MetadataResolver::new(metadata_provider, cache.clone());
@@ -120,9 +112,9 @@ pub fn run<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
             "  [f] Refresh provider data and artwork"
         };
         let answer = interaction
-            .ask(&format!(
+            .prompt(UiLine::menu_prompt(format!(
                 "Choose: [r] Review  [a] Artwork{refresh}  [d] Done: "
-            ))?
+            )))?
             .to_ascii_lowercase();
         match answer.as_str() {
             "r" | "review" => {
@@ -178,17 +170,17 @@ pub fn run<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
                 candidates = refreshed_decision.candidates().to_vec();
                 let refreshed_selection = choose(interaction, &inspection, refreshed_decision)?;
                 let metadata_replaced = if refreshed_selection == MetadataSelection::Cancelled {
-                    interaction.show("Current preview kept unchanged.")?;
+                    interaction.prose("Current preview kept unchanged.")?;
                     false
                 } else if same_result(&metadata, &refreshed_selection) {
-                    interaction.show("Provider data is current; the preview did not change.")?;
+                    interaction.success("Provider data is current; the preview did not change.")?;
                     metadata = refreshed_selection;
                     true
                 } else if confirm_refreshed(interaction)? {
                     metadata = refreshed_selection;
                     true
                 } else {
-                    interaction.show("Current preview kept unchanged.")?;
+                    interaction.prose("Current preview kept unchanged.")?;
                     false
                 };
                 if metadata_replaced {
@@ -218,10 +210,10 @@ pub fn run<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
                             artwork = initial_artwork(source, &metadata, archive_artwork.as_ref());
                         }
                     } else {
-                        interaction.show("Current artwork choice kept unchanged.")?;
+                        interaction.prose("Current artwork choice kept unchanged.")?;
                     }
                 } else {
-                    interaction.show("Cover Art Archive artwork is current.")?;
+                    interaction.success("Cover Art Archive artwork is current.")?;
                 }
                 warn_if_no_artwork(
                     interaction,
@@ -232,7 +224,7 @@ pub fn run<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
             }
             "" => {}
             "d" | "done" | "q" | "quit" => break,
-            _ => interaction.show("Please choose Review, Artwork, Refresh, or Done.")?,
+            _ => interaction.error("Please choose Review, Artwork, Refresh, or Done.")?,
         }
     }
 
@@ -308,7 +300,7 @@ fn fetch_artwork<A: ArtworkProvider>(
         warnings.push("Selected metadata has no release-group artwork identity".into());
         return Ok(None);
     };
-    interaction.show("Checking Cover Art Archive for a canonical front cover...")?;
+    interaction.prose("Checking Cover Art Archive for a canonical front cover...")?;
     let lookup = {
         let mut progress = InteractionProgress(interaction);
         resolver.lookup(
@@ -370,40 +362,49 @@ fn show_preview(
     warnings: &[String],
     source_year_fallback: Option<u16>,
 ) -> io::Result<()> {
-    show_styled(interaction, TextStyle::Heading, "\nmetadata preview")?;
+    interaction.blank()?;
+    interaction.heading("metadata preview")?;
     match metadata {
         MetadataSelection::Provider(selected) => {
-            interaction.show(&format!("  Selected: {}", selected.candidate.human_label()))?;
-            interaction.show("  Verification: MusicBrainz")?;
+            interaction.field("Selected", selected.candidate.human_label())?;
+            interaction.field("Verification", "MusicBrainz")?;
             if let Some(year) = source_year_fallback {
-                interaction.show(&format!(
-                    "  Year provenance: source tags ({year}, unverified fallback)"
-                ))?;
+                interaction.field(
+                    "Year provenance",
+                    format!("source tags ({year}, unverified fallback)"),
+                )?;
             } else {
-                interaction.show("  Year provenance: MusicBrainz")?;
+                interaction.field("Year provenance", "MusicBrainz")?;
             }
         }
         MetadataSelection::ExistingTags => {
-            interaction.show("  Selected: existing source metadata")?;
-            interaction.show("  Verification: unverified")?;
+            interaction.field("Selected", "existing source metadata")?;
+            interaction.field("Verification", "unverified")?;
             if common_release_group_id(&source_inspection(source).0).is_some() {
-                interaction.show(
-                    "  Artwork provenance: Cover Art Archive via existing source ID; metadata remains unverified",
+                interaction.field(
+                    "Artwork provenance",
+                    "Cover Art Archive via existing source ID; metadata remains unverified",
                 )?;
             }
         }
         MetadataSelection::Cancelled => {}
     }
-    interaction.show(&format!("  Artwork: {}", artwork_label(source, artwork)))?;
+    interaction.field("Artwork", artwork_label(source, artwork))?;
     if archive.is_some() && !matches!(artwork, ArtworkSelection::CoverArtArchive(_)) {
-        interaction.show("  Artwork alternative: Cover Art Archive 1200px front")?;
+        interaction.present(
+            UiLine::new()
+                .with(SemanticRole::Prose, "  ")
+                .with(SemanticRole::FieldName, "Artwork alternative")
+                .with(SemanticRole::Prose, ": ")
+                .with(SemanticRole::Alternative, "Cover Art Archive 1200px front"),
+        )?;
     }
     if warnings.is_empty() {
-        interaction.show("  Warnings: none")?;
+        interaction.field("Warnings", "none")?;
     } else {
-        interaction.show(&format!("  Warnings: {} (shown above)", warnings.len()))?;
+        interaction.field("Warnings", format!("{} (shown above)", warnings.len()))?;
     }
-    interaction.show("  No files were changed. Apply arrives in milestone 4.")
+    interaction.prose("  No files were changed. Apply arrives in milestone 4.")
 }
 
 fn artwork_label(source: &SourceInspection, artwork: &ArtworkSelection) -> String {
@@ -432,15 +433,15 @@ fn choose_artwork<V: ArtworkViewer>(
 ) -> io::Result<ArtworkSelection> {
     match (source.selected_artwork.is_some(), archive) {
         (true, Some(archive)) => loop {
-            let answer = interaction.ask(
+            let answer = interaction.prompt(UiLine::menu_prompt(
                 "Artwork: [1] Keep source cover (default)  [2] Use Cover Art Archive front  [v] View current  [b] Back: ",
-            )?;
+            ))?;
             match answer.to_ascii_lowercase().as_str() {
                 "1" => return Ok(ArtworkSelection::Source),
                 "2" => return Ok(ArtworkSelection::CoverArtArchive(archive.clone())),
                 "v" | "view" => view_artwork(interaction, source, &current, viewer)?,
                 "" | "b" | "back" => return Ok(current),
-                _ => interaction.show("Please choose Source, Cover Art Archive, or Back.")?,
+                _ => interaction.error("Please choose Source, Cover Art Archive, or Back.")?,
             }
         },
         (true, None) => {
@@ -448,9 +449,9 @@ fn choose_artwork<V: ArtworkViewer>(
             Ok(current)
         }
         (false, Some(archive)) => loop {
-            let answer = interaction.ask(
+            let answer = interaction.prompt(UiLine::menu_prompt(
                 "Artwork: [2] Use Cover Art Archive front  [v] View archive front  [b] Back: ",
-            )?;
+            ))?;
             match answer.to_ascii_lowercase().as_str() {
                 "2" => return Ok(ArtworkSelection::CoverArtArchive(archive.clone())),
                 "v" | "view" => view_artwork(
@@ -460,11 +461,11 @@ fn choose_artwork<V: ArtworkViewer>(
                     viewer,
                 )?,
                 "" | "b" | "back" => return Ok(current),
-                _ => interaction.show("Please choose Use, View, or Back.")?,
+                _ => interaction.error("Please choose Use, View, or Back.")?,
             }
         },
         (false, None) => {
-            interaction.show("No album artwork is available.")?;
+            interaction.warning("No album artwork is available.")?;
             Ok(current)
         }
     }
@@ -501,12 +502,8 @@ fn view_artwork<V: ArtworkViewer>(
         ArtworkSelection::None => Err("no artwork is available to view".into()),
     };
     match result {
-        Ok(()) => interaction.show("Opened the selected artwork in the system image viewer."),
-        Err(error) => show_styled(
-            interaction,
-            TextStyle::Error,
-            &format!("Could not view artwork: {error}"),
-        ),
+        Ok(()) => interaction.success("Opened the selected artwork in the system image viewer."),
+        Err(error) => interaction.error(format!("Could not view artwork: {error}")),
     }
 }
 
@@ -519,8 +516,9 @@ fn review(
     warnings: &[String],
 ) -> io::Result<bool> {
     loop {
-        let answer = interaction
-            .ask("Review: [s] Source files and tags  [m] Metadata  [w] Warnings  [b] Back: ")?;
+        let answer = interaction.prompt(UiLine::menu_prompt(
+            "Review: [s] Source files and tags  [m] Metadata  [w] Warnings  [b] Back: ",
+        ))?;
         match answer.to_ascii_lowercase().as_str() {
             "s" | "source" => show_source_review(interaction, source)?,
             "m" | "metadata" => {
@@ -531,13 +529,13 @@ fn review(
             }
             "w" | "warnings" => {
                 if warnings.is_empty() {
-                    interaction.show("No warnings.")?;
+                    interaction.prose("No warnings.")?;
                 } else {
                     show_warnings(interaction, warnings)?;
                 }
             }
             "" | "b" | "back" => return Ok(false),
-            _ => interaction.show("Please choose Source, Metadata, Warnings, or Back.")?,
+            _ => interaction.error("Please choose Source, Metadata, Warnings, or Back.")?,
         }
     }
 }
@@ -546,24 +544,61 @@ fn show_source_review(
     interaction: &mut impl Interaction,
     source: &SourceInspection,
 ) -> io::Result<()> {
-    interaction.show("\nSource files and tags:")?;
+    interaction.blank()?;
+    interaction.heading("Source files and tags")?;
     for audio in &source.audio {
-        interaction.show(&format!("  {}", audio.relative_path.display()))?;
-        interaction.show(&format!(
-            "    title: {} | artist: {} | album: {} | album artist: {} | disc-track: {}-{}",
-            audio.tags.title.as_deref().unwrap_or("?"),
-            audio.tags.artist.as_deref().unwrap_or("?"),
-            audio.tags.album.as_deref().unwrap_or("?"),
-            audio.tags.album_artist.as_deref().unwrap_or("?"),
-            audio
-                .tags
-                .disc
-                .map_or_else(|| "?".into(), |value| value.to_string()),
-            audio
-                .tags
-                .track
-                .map_or_else(|| "?".into(), |value| value.to_string()),
+        interaction.present(UiLine::new().with(
+            SemanticRole::Path,
+            format!("  {}", audio.relative_path.display()),
         ))?;
+        interaction.present(
+            UiLine::new()
+                .with(SemanticRole::Prose, "    ")
+                .with(SemanticRole::FieldName, "title")
+                .with(SemanticRole::Prose, ": ")
+                .with(
+                    SemanticRole::Value,
+                    audio.tags.title.as_deref().unwrap_or("?"),
+                )
+                .with(SemanticRole::Prose, " | ")
+                .with(SemanticRole::FieldName, "artist")
+                .with(SemanticRole::Prose, ": ")
+                .with(
+                    SemanticRole::Value,
+                    audio.tags.artist.as_deref().unwrap_or("?"),
+                )
+                .with(SemanticRole::Prose, " | ")
+                .with(SemanticRole::FieldName, "album")
+                .with(SemanticRole::Prose, ": ")
+                .with(
+                    SemanticRole::Value,
+                    audio.tags.album.as_deref().unwrap_or("?"),
+                )
+                .with(SemanticRole::Prose, " | ")
+                .with(SemanticRole::FieldName, "album artist")
+                .with(SemanticRole::Prose, ": ")
+                .with(
+                    SemanticRole::Value,
+                    audio.tags.album_artist.as_deref().unwrap_or("?"),
+                )
+                .with(SemanticRole::Prose, " | ")
+                .with(SemanticRole::FieldName, "disc-track")
+                .with(SemanticRole::Prose, ": ")
+                .with(
+                    SemanticRole::Value,
+                    format!(
+                        "{}-{}",
+                        audio
+                            .tags
+                            .disc
+                            .map_or_else(|| "?".into(), |value| value.to_string()),
+                        audio
+                            .tags
+                            .track
+                            .map_or_else(|| "?".into(), |value| value.to_string()),
+                    ),
+                ),
+        )?;
     }
     Ok(())
 }
@@ -641,12 +676,9 @@ fn show_artwork_change(
     previous: Option<&crate::provider::ProviderArtwork>,
     refreshed: Option<&crate::provider::ProviderArtwork>,
 ) -> io::Result<()> {
-    interaction.show("Cover Art Archive artwork changed:")?;
-    interaction.show(&format!("  Previous: {}", provider_artwork_label(previous)))?;
-    interaction.show(&format!(
-        "  Refreshed: {}",
-        provider_artwork_label(refreshed)
-    ))
+    interaction.heading("Cover Art Archive artwork changed")?;
+    interaction.field("Previous", provider_artwork_label(previous))?;
+    interaction.field("Refreshed", provider_artwork_label(refreshed))
 }
 
 fn provider_artwork_label(artwork: Option<&crate::provider::ProviderArtwork>) -> String {
@@ -663,11 +695,13 @@ fn provider_artwork_label(artwork: Option<&crate::provider::ProviderArtwork>) ->
 
 fn confirm_refreshed_artwork(interaction: &mut impl Interaction) -> io::Result<bool> {
     loop {
-        let answer = interaction.ask("Use the refreshed archive artwork? [y/N]: ")?;
+        let answer = interaction.prompt(UiLine::menu_prompt(
+            "Use the refreshed archive artwork? [y/N]: ",
+        ))?;
         match answer.to_ascii_lowercase().as_str() {
             "y" | "yes" => return Ok(true),
             "" | "n" | "no" => return Ok(false),
-            _ => interaction.show("Please answer Yes or No.")?,
+            _ => interaction.error("Please answer Yes or No.")?,
         }
     }
 }
@@ -684,11 +718,13 @@ fn same_result(left: &MetadataSelection, right: &MetadataSelection) -> bool {
 
 fn confirm_refreshed(interaction: &mut impl Interaction) -> io::Result<bool> {
     loop {
-        let answer = interaction.ask("Use the materially changed refreshed metadata? [y/N]: ")?;
+        let answer = interaction.prompt(UiLine::menu_prompt(
+            "Use the materially changed refreshed metadata? [y/N]: ",
+        ))?;
         match answer.to_ascii_lowercase().as_str() {
             "y" | "yes" => return Ok(true),
             "" | "n" | "no" => return Ok(false),
-            _ => interaction.show("Please answer Yes or No.")?,
+            _ => interaction.error("Please answer Yes or No.")?,
         }
     }
 }
@@ -703,7 +739,7 @@ fn show_lookup_origin(interaction: &mut impl Interaction, origin: LookupOrigin) 
         LookupOrigin::OfflineMiss => "No cached metadata is available in offline mode.",
         LookupOrigin::ProviderUnavailable => "MusicBrainz metadata is unavailable.",
     };
-    interaction.show(message)
+    interaction.success(message)
 }
 
 fn show_artwork_origin(
@@ -722,23 +758,14 @@ fn show_artwork_origin(
         ArtworkLookupOrigin::OfflineCache => "Using artwork cache in offline mode.",
         ArtworkLookupOrigin::ProviderUnavailable => "Cover Art Archive artwork is unavailable.",
     };
-    interaction.show(message)
+    interaction.success(message)
 }
 
 fn show_warnings(interaction: &mut impl Interaction, warnings: &[String]) -> io::Result<()> {
     for warning in warnings {
-        show_styled(
-            interaction,
-            TextStyle::Warning,
-            &format!("Warning: {warning}"),
-        )?;
+        interaction.warning(format!("Warning: {warning}"))?;
     }
     Ok(())
-}
-
-fn show_styled(interaction: &mut impl Interaction, style: TextStyle, text: &str) -> io::Result<()> {
-    let text = interaction.styled(style, text);
-    interaction.show(&text)
 }
 
 struct InteractionProgress<'a, I>(&'a mut I);
@@ -755,9 +782,15 @@ impl<I: Interaction> ProviderProgress for InteractionProgress<'_, I> {
                 seconds,
                 reason: WaitReason::Retry,
             } => format!("  Provider unavailable; retrying in {seconds}s (Ctrl-C exits)..."),
+            ProviderEvent::RetryingTitle {
+                original,
+                simplified,
+            } => format!(
+                "  No usable release found for “{original}”; retrying with “{simplified}”..."
+            ),
         };
         self.0
-            .show(&message)
+            .prose(message)
             .map_err(|error| ProviderError::Progress(error.to_string()))
     }
 }

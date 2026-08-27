@@ -19,14 +19,14 @@ struct ScriptedInteraction {
 }
 
 impl Interaction for ScriptedInteraction {
-    fn show(&mut self, text: &str) -> io::Result<()> {
-        self.transcript.push_str(text);
+    fn present(&mut self, line: UiLine) -> io::Result<()> {
+        self.transcript.push_str(&line.plain_text());
         self.transcript.push('\n');
         Ok(())
     }
 
-    fn ask(&mut self, prompt: &str) -> io::Result<String> {
-        self.transcript.push_str(prompt);
+    fn prompt(&mut self, prompt: UiLine) -> io::Result<String> {
+        self.transcript.push_str(&prompt.plain_text());
         Ok(self.answers.pop_front().unwrap_or_default())
     }
 }

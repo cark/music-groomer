@@ -226,6 +226,36 @@ impl<H: MusicBrainzHttp> MusicBrainzClient<H> {
 }
 
 impl<H: MusicBrainzHttp> MusicBrainzClient<H> {
+    fn browse_candidates(
+        &mut self,
+        search: &ProviderSearch,
+        group_ids: Vec<String>,
+        deadline: Instant,
+        progress: &mut dyn ProviderProgress,
+    ) -> Result<Vec<CandidateRelease>, ProviderError> {
+        let mut candidates = Vec::new();
+        for group_id in group_ids {
+            let browse: ReleaseBrowse = self.request(
+                &Self::browse_group_url(&group_id),
+                "MusicBrainz release variants",
+                deadline,
+                progress,
+            )?;
+            candidates.extend(
+                browse
+                    .releases
+                    .into_iter()
+                    .filter(ReleaseDetail::is_official)
+                    .filter(|release| {
+                        search.kind == crate::domain::SourceKind::LooseFile
+                            || release.track_count() == search.track_count
+                    })
+                    .filter_map(ReleaseDetail::into_candidate),
+            );
+        }
+        Ok(candidates)
+    }
+
     fn search(
         &mut self,
         search: &ProviderSearch,
@@ -238,25 +268,7 @@ impl<H: MusicBrainzHttp> MusicBrainzClient<H> {
         let (group_ids, mut warnings) = self.discover(search, deadline, progress)?;
         let identifier_discovery =
             search.release_group_id.is_some() || !search.recording_ids.is_empty();
-        let mut candidates = Vec::new();
-
-        for group_id in group_ids {
-            let browse: ReleaseBrowse = self.request(
-                &Self::browse_group_url(&group_id),
-                "MusicBrainz release variants",
-                deadline,
-                progress,
-            )?;
-            let releases = browse
-                .releases
-                .into_iter()
-                .filter(ReleaseDetail::is_official);
-            let compatible = releases.into_iter().filter(|release| {
-                search.kind == crate::domain::SourceKind::LooseFile
-                    || release.track_count() == search.track_count
-            });
-            candidates.extend(compatible.filter_map(ReleaseDetail::into_candidate));
-        }
+        let mut candidates = self.browse_candidates(search, group_ids, deadline, progress)?;
 
         if identifier_discovery && candidates.is_empty() {
             warnings.push(if search.release_group_id.is_some() {
@@ -269,26 +281,25 @@ impl<H: MusicBrainzHttp> MusicBrainzClient<H> {
             fallback.recording_ids.clear();
             if fallback.artist.is_some() && (fallback.album.is_some() || fallback.title.is_some()) {
                 let (groups, _) = self.discover(&fallback, deadline, progress)?;
-                for group_id in groups {
-                    let browse: ReleaseBrowse = self.request(
-                        &Self::browse_group_url(&group_id),
-                        "MusicBrainz release variants",
-                        deadline,
-                        progress,
-                    )?;
-                    candidates.extend(
-                        browse
-                            .releases
-                            .into_iter()
-                            .filter(ReleaseDetail::is_official)
-                            .filter(|release| {
-                                search.kind == crate::domain::SourceKind::LooseFile
-                                    || release.track_count() == search.track_count
-                            })
-                            .filter_map(ReleaseDetail::into_candidate),
-                    );
-                }
+                candidates.extend(self.browse_candidates(search, groups, deadline, progress)?);
             }
+        }
+
+        if candidates.is_empty()
+            && let Some((mut fallback, original, simplified)) = simplified_album_search(search)
+        {
+            progress.event(super::ProviderEvent::RetryingTitle {
+                original: original.clone(),
+                simplified: simplified.clone(),
+            })?;
+            warnings.push(format!(
+                "No usable MusicBrainz release was found for “{original}”; retried with the search-only base title “{simplified}”"
+            ));
+            fallback.release_group_id = None;
+            fallback.recording_ids.clear();
+            let (groups, fallback_warnings) = self.discover(&fallback, deadline, progress)?;
+            warnings.extend(fallback_warnings);
+            candidates.extend(self.browse_candidates(&fallback, groups, deadline, progress)?);
         }
 
         Ok(ProviderSearchResult {
@@ -310,6 +321,39 @@ impl MetadataProvider for MusicBrainzProvider {
 
 fn escaped(value: &str) -> String {
     value.replace(['\\', '"'], " ")
+}
+
+fn simplified_album_search(search: &ProviderSearch) -> Option<(ProviderSearch, String, String)> {
+    let original = search.album.as_deref()?.trim();
+    let simplified = strip_trailing_qualifiers(original);
+    if simplified == original || simplified.is_empty() {
+        return None;
+    }
+    let mut fallback = search.clone();
+    fallback.album = Some(simplified.to_owned());
+    Some((fallback, original.to_owned(), simplified.to_owned()))
+}
+
+fn strip_trailing_qualifiers(title: &str) -> &str {
+    let mut base = title.trim();
+    loop {
+        let Some(close) = base.chars().last() else {
+            return base;
+        };
+        let open = match close {
+            ')' => '(',
+            ']' => '[',
+            _ => return base,
+        };
+        let Some(start) = base.rfind(open) else {
+            return base;
+        };
+        let candidate = base[..start].trim_end();
+        if candidate.is_empty() {
+            return base;
+        }
+        base = candidate;
+    }
 }
 
 #[derive(Deserialize)]
@@ -486,6 +530,16 @@ mod tests {
         urls: Vec<String>,
     }
 
+    #[derive(Default)]
+    struct RecordedProgress(Vec<super::super::ProviderEvent>);
+
+    impl ProviderProgress for RecordedProgress {
+        fn event(&mut self, event: super::super::ProviderEvent) -> Result<(), ProviderError> {
+            self.0.push(event);
+            Ok(())
+        }
+    }
+
     impl MusicBrainzHttp for FakeHttp {
         fn get_json<T: DeserializeOwned>(
             &mut self,
@@ -655,6 +709,68 @@ mod tests {
 
         assert!(url.contains("Song"));
         assert!(!url.contains("Album"));
+    }
+
+    #[test]
+    fn retries_a_search_only_base_title_after_exact_groups_are_unusable() {
+        let mut search = search();
+        search.album = Some("Evolution (2008, TYACD004)".into());
+        search.album_artist_ids.clear();
+        let mut provider = MusicBrainzClient {
+            http: FakeHttp {
+                responses: VecDeque::from([
+                    serde_json::json!({"release-groups": [{"id": "edition-group"}]}),
+                    serde_json::json!({"releases": []}),
+                    serde_json::json!({"release-groups": [{"id": "evolution-group"}]}),
+                    serde_json::json!({"releases": [release(1, "Track", "Official")]}),
+                ]),
+                urls: Vec::new(),
+            },
+        };
+        let mut progress = RecordedProgress::default();
+
+        let result = provider.search(&search, &mut progress).unwrap();
+
+        assert_eq!(result.candidates.len(), 1);
+        assert!(provider.http.urls[0].contains("Evolution%20%282008%2C%20TYACD004%29"));
+        assert!(provider.http.urls[2].contains("Evolution"));
+        assert!(!provider.http.urls[2].contains("TYACD004"));
+        assert!(
+            progress
+                .0
+                .contains(&super::super::ProviderEvent::RetryingTitle {
+                    original: "Evolution (2008, TYACD004)".into(),
+                    simplified: "Evolution".into(),
+                })
+        );
+    }
+
+    #[test]
+    fn keeps_a_parenthetical_title_when_the_exact_search_is_usable() {
+        let mut search = search();
+        search.album = Some("Album (Parenthetical)".into());
+        search.album_artist_ids.clear();
+        let mut provider = MusicBrainzClient {
+            http: FakeHttp {
+                responses: VecDeque::from([
+                    serde_json::json!({"release-groups": [{"id": "exact-group"}]}),
+                    serde_json::json!({"releases": [release(1, "Track", "Official")]}),
+                ]),
+                urls: Vec::new(),
+            },
+        };
+        let mut progress = RecordedProgress::default();
+
+        let result = provider.search(&search, &mut progress).unwrap();
+
+        assert_eq!(result.candidates.len(), 1);
+        assert_eq!(provider.http.urls.len(), 2);
+        assert!(
+            progress
+                .0
+                .iter()
+                .all(|event| !matches!(event, super::super::ProviderEvent::RetryingTitle { .. }))
+        );
     }
 
     fn search() -> ProviderSearch {

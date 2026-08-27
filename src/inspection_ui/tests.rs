@@ -12,6 +12,7 @@ use crate::source::SourceInspector;
 struct ScriptedInteraction {
     answers: VecDeque<String>,
     transcript: String,
+    events: Vec<UiLine>,
 }
 
 impl ScriptedInteraction {
@@ -19,19 +20,22 @@ impl ScriptedInteraction {
         Self {
             answers: answers.iter().map(|answer| (*answer).to_owned()).collect(),
             transcript: String::new(),
+            events: Vec::new(),
         }
     }
 }
 
 impl Interaction for ScriptedInteraction {
-    fn show(&mut self, text: &str) -> io::Result<()> {
-        self.transcript.push_str(text);
+    fn present(&mut self, line: UiLine) -> io::Result<()> {
+        self.transcript.push_str(&line.plain_text());
         self.transcript.push('\n');
+        self.events.push(line);
         Ok(())
     }
 
-    fn ask(&mut self, prompt: &str) -> io::Result<String> {
-        self.transcript.push_str(prompt);
+    fn prompt(&mut self, prompt: UiLine) -> io::Result<String> {
+        self.transcript.push_str(&prompt.plain_text());
+        self.events.push(prompt);
         Ok(self.answers.pop_front().unwrap_or_default())
     }
 }
@@ -77,6 +81,22 @@ fn summary_and_review_show_exact_detected_changes() {
         interaction
             .transcript
             .contains("No provider was contacted and no destination was accessed")
+    );
+    assert!(
+        interaction
+            .events
+            .iter()
+            .any(|line| line.spans.iter().any(|span| {
+                span.role == crate::terminal::SemanticRole::Path && span.text.contains("release")
+            }))
+    );
+    assert!(
+        interaction
+            .events
+            .iter()
+            .any(|line| line.spans.iter().any(|span| {
+                span.role == crate::terminal::SemanticRole::MenuKey && span.text == "[r]"
+            }))
     );
 }
 

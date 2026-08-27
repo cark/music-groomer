@@ -47,7 +47,14 @@ pub trait ProviderProgress {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProviderEvent {
     Requesting(&'static str),
-    Waiting { seconds: u64, reason: WaitReason },
+    Waiting {
+        seconds: u64,
+        reason: WaitReason,
+    },
+    RetryingTitle {
+        original: String,
+        simplified: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -3,37 +3,33 @@ use std::io;
 
 use crate::domain::SourceKind;
 use crate::source::SourceInspection;
-use crate::terminal::{Interaction, TextStyle};
+use crate::terminal::{Interaction, SemanticRole};
 
-use super::render::{artwork_summary, duration, show_label_value, show_notice, show_styled};
+use super::render::{artwork_summary, duration, show_label_value, show_notice};
 
 pub(super) fn show(
     interaction: &mut impl Interaction,
     inspection: &SourceInspection,
     continues_to_metadata: bool,
 ) -> io::Result<()> {
-    show_styled(
-        interaction,
-        TextStyle::Heading,
-        "music-groomer — source inspection",
-    )?;
+    interaction.heading("music-groomer — source inspection")?;
     show_label_value(
         interaction,
         "Source",
         &inspection.source.display().to_string(),
-        TextStyle::Path,
+        SemanticRole::Path,
     )?;
     show_label_value(
         interaction,
         "Interpretation",
         interpretation(inspection),
-        TextStyle::Value,
+        SemanticRole::Value,
     )?;
     show_label_value(
         interaction,
         "Audio",
         &audio_summary(inspection),
-        TextStyle::Value,
+        SemanticRole::Value,
     )?;
     show_common(interaction, inspection, "Album", |audio| {
         audio.tags.album.as_deref()
@@ -50,20 +46,20 @@ pub(super) fn show(
         interaction,
         "Ancillary",
         &format!("{} file(s)", inspection.ancillary.len()),
-        TextStyle::Value,
+        SemanticRole::Value,
     )?;
     for notice in &inspection.notices {
         show_notice(interaction, notice)?;
     }
     show_completion(interaction, inspection)?;
     if continues_to_metadata {
-        interaction.show(
+        interaction.prose(
             "The destination was not accessed; provider matching starts only after Continue.",
         )?;
     } else {
-        interaction.show("No provider was contacted and no destination was accessed.")?;
+        interaction.prose("No provider was contacted and no destination was accessed.")?;
     }
-    interaction.show("")
+    interaction.blank()
 }
 
 fn interpretation(inspection: &SourceInspection) -> &'static str {
@@ -108,12 +104,12 @@ fn show_common(
         .filter_map(value)
         .collect::<BTreeSet<_>>();
     let (text, style) = match values.len() {
-        0 => ("(missing)".to_owned(), TextStyle::Warning),
+        0 => ("(missing)".to_owned(), SemanticRole::Warning),
         1 => (
             values.first().copied().unwrap_or_default().to_owned(),
-            TextStyle::Value,
+            SemanticRole::Value,
         ),
-        _ => ("(tracks disagree)".to_owned(), TextStyle::Warning),
+        _ => ("(tracks disagree)".to_owned(), SemanticRole::Warning),
     };
     show_label_value(interaction, label, &text, style)
 }
@@ -144,7 +140,7 @@ fn show_track_coverage(
             "{numbered}/{} track(s) numbered; {disc_label}",
             inspection.audio.len()
         ),
-        TextStyle::Value,
+        SemanticRole::Value,
     )
 }
 
@@ -160,19 +156,19 @@ fn show_artwork(
             interaction,
             "Artwork",
             &artwork_summary(artwork),
-            TextStyle::Value,
+            SemanticRole::Value,
         ),
         None if inspection.artwork.is_empty() => show_label_value(
             interaction,
             "Artwork",
             "no recognizable source front",
-            TextStyle::Warning,
+            SemanticRole::Warning,
         ),
         None => show_label_value(
             interaction,
             "Artwork",
             "multiple equally preferred source fronts",
-            TextStyle::Warning,
+            SemanticRole::Warning,
         ),
     }
 }
@@ -182,17 +178,11 @@ fn show_completion(
     inspection: &SourceInspection,
 ) -> io::Result<()> {
     if inspection.is_blocked() {
-        show_styled(
-            interaction,
-            TextStyle::Error,
+        interaction.error(
             "Blocked: the source cannot be groomed safely until the errors above are resolved.",
         )?;
-        interaction.show("The source remains untouched; inspection made no changes.")
+        interaction.prose("The source remains untouched; inspection made no changes.")
     } else {
-        show_styled(
-            interaction,
-            TextStyle::Success,
-            "✓ Inspection complete; no files were changed.",
-        )
+        interaction.success("✓ Inspection complete; no files were changed.")
     }
 }
