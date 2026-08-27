@@ -12,8 +12,8 @@ for Navidrome:
 - good treatment of collaborations, compilations, and multi-disc albums.
 
 The normal input is one album directory or one loose audio file explicitly
-selected by the user. The normal output is a separate groomed album or track
-suitable for later placement in the library. The source remains untouched.
+selected by the user. The normal output is a new groomed album or track under
+the configured Navidrome media-library root. The source remains untouched.
 
 Standalone tracks are part of v0.1 because the user's main listening playlist
 contains many loose tracks and their artist, title, artwork, and presentation in
@@ -27,10 +27,10 @@ Process one explicitly selected item per guided v0.1 session: either one album
 directory or one loose track. Playlist and multi-item batch processing are
 deliberately deferred until the single-item workflow is proven.
 
-v0.1 always produces a separate groomed result. Updating an explicitly selected
-album or track already inside the live library is the next distinct destination
-workflow after separate-output grooming is proven; do not mix its replacement
-safety into v0.1.
+v0.1 always creates a new destination and refuses a collision. Updating or
+replacing an explicitly selected album or track already inside the live library
+is the next distinct destination workflow; do not mix replacement safety into
+v0.1.
 
 Selecting one audio file selects only that file; arbitrary siblings do not
 become source material. Selecting a directory containing one audio file selects
@@ -60,7 +60,7 @@ user should not have to copy provider identifiers between commands.
 - a database or durable job system;
 - whole-library scans or rewrites;
 - direct Navidrome database integration;
-- automatic publication into the live library;
+- updating or replacing an existing live-library item;
 - retained source archives or backup machinery;
 - NixOS modules, services, timers, users, groups, or capabilities;
 - lyrics acquisition or normalization.

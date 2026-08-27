@@ -30,10 +30,10 @@ best candidate clearly exceeds the runner-up. Otherwise present materially
 different alternatives and their reasons. Do not use machine learning or show a
 confidence number without an explanation.
 
-Keep destination behavior separate from matching and planning. v0.1 has only a
-separate-output destination policy. A later explicitly selected in-library
-update can reuse the same plan while supplying different replacement and
-validation behavior.
+Keep destination behavior separate from matching and planning. v0.1 creates a
+new result under the configured destination root, normally the media library,
+and refuses collisions. A later explicitly selected in-library update can reuse
+the same plan while supplying replacement and validation behavior.
 
 Keep narrow adapters around:
 

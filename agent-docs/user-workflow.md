@@ -9,10 +9,17 @@ audio file from inspection through an optional apply:
 music-groomer SOURCE --output OUTPUT
 ```
 
-Remember a default separate-output root in a small user configuration file so
-later guided runs may omit `--output`. Allow a per-run override. In human mode,
-always show and explicitly confirm the fully resolved destination before apply,
-even when it came from saved configuration.
+Remember a default destination root in a small user configuration file; it will
+normally be the Navidrome media-library root. In the guided session, show a
+visible destination-change action. Require an alternative root to exist, show
+the resulting full album path and any collision, then offer to use it once or
+save it as the new default. Always show and explicitly confirm the fully
+resolved destination before apply.
+
+Temporary construction is separate from this final destination: build and
+validate in the operating system's temporary directory, then publish the new
+result under the configured root. Ordinary filesystem permissions are enough;
+the live library is not a privileged or inviolable destination.
 
 For a file source, inspect and groom only that file. For a directory containing
 one audio file, treat it as a single release source and preserve its ordinary
@@ -27,7 +34,8 @@ The session should:
 4. When necessary, show a small choice using recognizable information such as
    artist credit, album title, year, format, disc and track counts, and cover.
 5. Build and display the exact proposed result.
-6. Offer clear actions such as `Apply`, `Review choices`, and `Cancel`.
+6. Offer clear actions such as `Apply`, `Review choices`, `Artwork`, `Change
+   destination`, and `Cancel`.
 7. Apply only after affirmative confirmation.
 8. Validate the groomed album and report its final path.
 
@@ -35,6 +43,10 @@ MusicBrainz identifiers may appear in an optional details view for provenance
 or expert troubleshooting, but they must not be part of the ordinary workflow.
 Artwork choices should offer a `View` action that opens the proposed image in
 the user's normal image viewer when the terminal cannot display it well.
+
+Use restrained bold and color styling to make headings, paths, selected values,
+changes, warnings, and errors easy to scan. Never rely on color alone, disable
+styling when output is not a terminal, and honor `NO_COLOR`.
 
 The guided interface should consume structured inspection, candidate, and plan
 values rather than contain product decisions itself. This leaves room for a
@@ -60,6 +72,10 @@ The default summary should emphasize decisions rather than dump every tag:
 An expanded review should show every tag and filename change. The final apply
 confirmation must refer to the exact in-memory plan being shown; it must not
 perform a fresh search after confirmation.
+
+Choosing `Apply` is the explicit apply action. Its final confirmation defaults
+to Yes (`[Y/n]`); declining returns to preview. An empty main-menu answer simply
+redisplays the choices and never silently means Cancel.
 
 ## Ambiguity
 

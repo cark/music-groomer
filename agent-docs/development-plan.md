@@ -7,8 +7,8 @@ This page tracks implementation. Durable product reasoning belongs in the
 
 - Product and technical alignment completed on 2026-08-27.
 - Milestone 0 documentation baseline completed on 2026-08-27.
-- Milestone 1 implementation completed on 2026-08-27 and is awaiting the
-  user's guided-interaction review.
+- Milestone 1's first guided-interaction review completed on 2026-08-27; the
+  accepted readability and destination refinements are being implemented.
 - Milestone 2 has not been authorized.
 
 ## Working rules
@@ -36,7 +36,7 @@ Acceptance:
 
 ## Milestone 1: core and guided UX
 
-Status: awaiting user UX review
+Status: implementing accepted UX review feedback
 
 Build domain values for inspection, candidates, decisions, changes, warnings,
 layout, immutable plans, and apply reports. Implement deterministic matching and
@@ -127,8 +127,8 @@ Status: blocked on explicit path and approval
 
 Use Ten Years After - Evolution only after the user supplies its path and grants
 read access. Present a real preview first. Apply only after separate explicit
-approval and only to the configured separate-output root. Do not access or
-modify the live library.
+approval and only to the configured destination root. Do not access or modify
+the live library before that approval.
 
 ## Standard verification
 

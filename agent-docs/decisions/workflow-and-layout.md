@@ -7,6 +7,11 @@ choices, exact preview, destination confirmation, and explicit apply. Provider
 identifiers stay in expanded details. Artwork can be opened in the normal image
 viewer. Do not require identifiers to be copied between commands.
 
+Use restrained bold and color styling for scanability while retaining textual
+labels and symbols. Disable styling for non-terminal output and when `NO_COLOR`
+is set. After the explicit Apply action, default final confirmation to Yes.
+Pressing Enter at the main action menu merely redisplays it.
+
 Process one explicitly selected item per v0.1 session. Playlist and multi-item
 batch processing are deferred until single-item behavior is proven.
 
@@ -51,9 +56,14 @@ Do not invent year, album, track number, or provider identifier to fill a path.
 
 ## Output destination
 
-Remember a default separate-output root in a small user configuration file and
-allow a one-run override. In guided mode, always show and confirm the fully
-resolved destination before applying.
+Remember a default destination root in a small user configuration file. It will
+normally be the Navidrome media-library root. Make `Change destination` visible
+inside the guided preview. An alternative root must already exist; after
+showing the resulting album path and checking for collision, offer `Use once`,
+`Use and save as default`, or `Go back`. Always confirm the fully resolved
+destination before applying.
 
-v0.1 always creates a separate result. Explicitly updating an existing live
-library item is the next destination workflow, not part of v0.1.
+Temporary staging belongs in the operating system's temporary directory and is
+not the final output. v0.1 creates a new result under the destination root and
+refuses collisions. Explicitly updating or replacing an existing live-library
+item is the next destination workflow, not part of v0.1.
