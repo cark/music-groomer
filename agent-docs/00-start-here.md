@@ -18,6 +18,7 @@ Milestone 4 alignment has not begun.
 Read [development plan](development-plan.md) for current status and the active
 milestone. Then load only the pages relevant to the task:
 
+- Any milestone work or transition: [milestone workflow](milestone-workflow.md).
 - Product direction or scope: [product intent](product-intent.md) and the
   [decision index](open-decisions.md).
 - Guided interaction or layout: [user workflow](user-workflow.md) and

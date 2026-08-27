@@ -4,6 +4,11 @@ Immediately read [agent-docs/current-work.md](agent-docs/current-work.md) and
 verify its claims against Git. It is the high-priority recovery checkpoint for
 active multi-turn work and may be stale after interruption.
 
+For any milestone alignment, implementation, exercise, review, correction, or
+transition, read and follow
+[agent-docs/milestone-workflow.md](agent-docs/milestone-workflow.md). This is
+the canonical lifecycle and must be revisited at every milestone boundary.
+
 Start with [agent-docs/00-start-here.md](agent-docs/00-start-here.md).
 Follow its task-based routing instead of loading every page by default.
 
