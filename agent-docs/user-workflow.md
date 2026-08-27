@@ -112,6 +112,10 @@ dates, or artwork, present a short human-readable choice in the current
 session. Provider IDs and a second command are fallback diagnostics, not user
 interface.
 
+A sole credible candidate continues automatically and remains revisable under
+Review. If the only candidate is genuinely uncertain or conflicting, ask a
+Yes/No confirmation rather than displaying a one-item numbered choice.
+
 ## Provider-unavailable fallback
 
 If no usable provider match is available, offer to use existing source metadata

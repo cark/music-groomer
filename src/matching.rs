@@ -283,6 +283,12 @@ fn rank(inspection: &Inspection, candidate: CandidateRelease) -> RankedCandidate
         .is_some_and(|album| normalize(&album) == normalize(&candidate.title))
         && common_string(&inspection.tracks, |track| &track.album_artist)
             .is_some_and(|artist| normalize(&artist) == normalize(&candidate.album_artist.display));
+    let album_title_and_track_artist_identity =
+        common_string(&inspection.tracks, |track| &track.album)
+            .is_some_and(|album| normalize(&album) == normalize(&candidate.title))
+            && common_string(&inspection.tracks, |track| &track.artist).is_some_and(|artist| {
+                normalize(&artist) == normalize(&candidate.album_artist.display)
+            });
     let loose_text_identity = inspection.kind == crate::domain::SourceKind::LooseFile
         && mappings.first().is_some_and(|mapping| {
             let source = &inspection.tracks[mapping.source_index];
@@ -303,6 +309,7 @@ fn rank(inspection: &Inspection, candidate: CandidateRelease) -> RankedCandidate
         || album_artist_ids_agree
         || all_recording_ids_agree
         || album_text_identity
+        || album_title_and_track_artist_identity
         || loose_text_identity;
 
     RankedCandidate {
@@ -841,6 +848,21 @@ mod tests {
         );
 
         let decision = MatchPolicy::default().decide(&inspection, vec![release]);
+
+        assert!(matches!(decision, MatchDecision::Selected { .. }));
+    }
+
+    #[test]
+    fn coherent_track_artist_can_confirm_album_identity_when_album_artist_is_missing() {
+        let mut inspection = inspected_album();
+        for track in &mut inspection.tracks {
+            track.album_artist = None;
+        }
+
+        let decision = MatchPolicy::default().decide(
+            &inspection,
+            vec![candidate("album", "The Album", [180_000, 240_000])],
+        );
 
         assert!(matches!(decision, MatchDecision::Selected { .. }));
     }

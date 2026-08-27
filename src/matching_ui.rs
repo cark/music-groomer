@@ -42,6 +42,9 @@ fn choose_candidate(
         "\n{}",
         interaction.styled(TextStyle::Warning, "Metadata needs your choice")
     ))?;
+    if candidates.len() == 1 {
+        return confirm_only_candidate(interaction, inspection, &candidates[0]);
+    }
     let mut shown = candidates.len().min(3);
     loop {
         show_candidates(interaction, &candidates, shown)?;
@@ -70,6 +73,39 @@ fn choose_candidate(
             }
             "c" | "cancel" | "q" | "quit" => return Ok(MetadataSelection::Cancelled),
             _ => interaction.show("Please choose one of the displayed actions.")?,
+        }
+    }
+}
+
+fn confirm_only_candidate(
+    interaction: &mut impl Interaction,
+    inspection: &Inspection,
+    candidate: &RankedCandidate,
+) -> io::Result<MetadataSelection> {
+    show_candidates(interaction, std::slice::from_ref(candidate), 1)?;
+    loop {
+        let existing = if coherent_existing_metadata(inspection).is_ok() {
+            "  [e] Existing tags"
+        } else {
+            ""
+        };
+        let answer = interaction.ask(&format!(
+            "Use this uncertain match? [y/N]  [t] Track-list details{existing}: "
+        ))?;
+        match answer.to_ascii_lowercase().as_str() {
+            "y" | "yes" => {
+                return Ok(MetadataSelection::Provider(Box::new(candidate.clone())));
+            }
+            "t" | "tracks" | "details" => {
+                show_track_lists(interaction, std::slice::from_ref(candidate))?;
+            }
+            "e" | "existing" if coherent_existing_metadata(inspection).is_ok() => {
+                return Ok(MetadataSelection::ExistingTags);
+            }
+            "" | "n" | "no" | "c" | "cancel" | "q" | "quit" => {
+                return Ok(MetadataSelection::Cancelled);
+            }
+            _ => interaction.show("Please answer Yes, No, Details, or Existing tags.")?,
         }
     }
 }
@@ -313,7 +349,10 @@ mod tests {
     use std::collections::VecDeque;
 
     use super::*;
-    use crate::domain::{InspectedTrack, Position};
+    use crate::domain::{
+        ArtistCredit, CandidateRelease, InspectedTrack, Position, ReleaseKind, ReleaseTrack,
+    };
+    use crate::matching::MatchPolicy;
     use crate::terminal::Interaction;
 
     struct Scripted {
@@ -395,5 +434,59 @@ mod tests {
         };
 
         assert!(coherent_existing_metadata(&inspection).is_ok());
+    }
+
+    #[test]
+    fn sole_uncertain_candidate_uses_confirmation_instead_of_numbered_choice() {
+        let inspection = Inspection {
+            source_label: "album".into(),
+            kind: SourceKind::AlbumDirectory,
+            tracks: vec![InspectedTrack {
+                source_name: "01.flac".into(),
+                title: Some("Track".into()),
+                artist: Some("Artist".into()),
+                album: Some("Release".into()),
+                album_artist: Some("Artist".into()),
+                artist_ids: Vec::new(),
+                album_artist_ids: Vec::new(),
+                compilation: Some(false),
+                original_year: Some(2000),
+                position: Some(Position::new(1, 1)),
+                duration_ms: 120_000,
+                recording_id: None,
+                release_group_id: None,
+            }],
+        };
+        let candidate = CandidateRelease {
+            provider_key: "candidate".into(),
+            title: "Release".into(),
+            album_artist: ArtistCredit::single("Artist"),
+            original_year: Some(2000),
+            kind: ReleaseKind::Other("Broadcast".into()),
+            tracks: vec![ReleaseTrack {
+                title: "Track".into(),
+                artist_credit: ArtistCredit::single("Artist"),
+                position: Position::new(1, 1),
+                duration_ms: 120_000,
+                recording_id: None,
+            }],
+            release_group_id: Some("group".into()),
+            exact_release_id: None,
+        };
+        let mut interaction = Scripted {
+            answers: VecDeque::from(["y".into()]),
+            transcript: String::new(),
+        };
+
+        let selection = choose(
+            &mut interaction,
+            &inspection,
+            MatchPolicy::default().decide(&inspection, vec![candidate]),
+        )
+        .unwrap();
+
+        assert!(matches!(selection, MetadataSelection::Provider(_)));
+        assert!(interaction.transcript.contains("Use this uncertain match?"));
+        assert!(!interaction.transcript.contains("Choose a number"));
     }
 }

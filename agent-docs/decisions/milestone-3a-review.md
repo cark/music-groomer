@@ -38,6 +38,10 @@ Art Archive smoke tests. No personal source or library path was accessed.
   mapping, credible album identity or identifiers, meaningful track evidence
   beyond position, and a clear lead. Additive score and album length cannot
   manufacture confidence.
+- A coherent track artist may support album identity when the album title
+  agrees and album-artist tags are missing. This permits ordinary incomplete
+  albums such as the Evolution exercise to auto-select without weakening the
+  conflict and track-evidence gates.
 - Map tracks by recording identity first, then unique title and compatible
   duration. Existing position is corroboration or a cautious fallback, not an
   authority that overrides better evidence.
@@ -49,6 +53,9 @@ Art Archive smoke tests. No personal source or library path was accessed.
   and material track-list differences, show full candidate track details on
   request, and allow selection of another candidate or coherent existing tags
   without restarting.
+- Never present a numbered choice containing only one item. A sole credible
+  result auto-selects; a sole result that remains uncertain uses an explicit
+  Yes/No confirmation with track-list details available.
 
 ## Provenance, warnings, and artwork
 
