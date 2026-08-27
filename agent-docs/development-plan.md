@@ -7,9 +7,8 @@ This page tracks implementation. Durable product reasoning belongs in the
 
 - Product and technical alignment completed on 2026-08-27.
 - Milestone 0 documentation baseline completed on 2026-08-27.
-- Milestone 1's first guided-interaction review completed on 2026-08-27. Its
-  accepted readability and destination refinements are implemented and await
-  a brief confirmation pass.
+- Milestone 1's revised guided interaction was accepted by the user on
+  2026-08-27.
 - Milestone 2 has not been authorized.
 
 ## Working rules
@@ -37,7 +36,7 @@ Acceptance:
 
 ## Milestone 1: core and guided UX
 
-Status: awaiting revised UX review
+Status: completed
 
 Build domain values for inspection, candidates, decisions, changes, warnings,
 layout, immutable plans, and apply reports. Implement deterministic matching and

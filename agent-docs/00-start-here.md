@@ -6,9 +6,8 @@ must never modify the selected source.
 
 ## Current phase
 
-Product and technical direction are aligned. Milestone 1 is implemented and is
-being refined through the user's guided-interaction review; milestone 2 has not
-been authorized.
+Product and technical direction are aligned. Milestone 1 is implemented,
+verified, and accepted; milestone 2 has not been authorized.
 
 ## Read next
 
