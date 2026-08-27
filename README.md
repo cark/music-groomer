@@ -86,9 +86,12 @@ three small live adapters without touching personal music or library paths:
 nix develop -c cargo test --test live_provider -- --ignored --nocapture
 ```
 
-Agents and contributors should begin with
-[agent-docs/00-start-here.md](agent-docs/00-start-here.md). The current execution
-status is in [agent-docs/development-plan.md](agent-docs/development-plan.md).
+Agents should begin with [AGENTS.md](AGENTS.md), which routes the active-work
+checkpoint, canonical milestone lifecycle, and durable project pages in the
+required order. Contributors can use
+[agent-docs/00-start-here.md](agent-docs/00-start-here.md) as the durable project
+index; implementation status is in
+[agent-docs/development-plan.md](agent-docs/development-plan.md).
 
 ## License
 

@@ -274,12 +274,14 @@ Acceptance:
 
 ## Milestone 5: real candidate exercise
 
-Status: blocked on explicit path and approval
+Status: pending milestone 4 and separate Apply approval
 
-Use Ten Years After - Evolution only after the user supplies its path and grants
-read access. Present a real preview first. Apply only after separate explicit
-approval and only to the configured destination root. Do not access or modify
-the live library before that approval.
+The user supplied the Ten Years After - Evolution path and approved read-only
+access for the completed milestone 3a terminal exercise. After milestone 4 is
+accepted, present a fresh full preview against that source. The earlier read
+approval does not authorize Apply: request separate explicit approval and use
+only the configured destination root. Never modify the source, and do not write
+to the live library without that separate approval.
 
 ## Standard verification
 
