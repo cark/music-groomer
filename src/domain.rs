@@ -1,6 +1,8 @@
 use std::fmt;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Artist {
     pub name: String,
     pub musicbrainz_id: Option<String>,
@@ -15,7 +17,7 @@ impl Artist {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtistCredit {
     pub display: String,
     pub artists: Vec<Artist>,
@@ -38,7 +40,7 @@ impl ArtistCredit {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SourceKind {
     AlbumDirectory,
     LooseFile,
@@ -50,7 +52,7 @@ impl SourceKind {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Position {
     pub disc: u16,
     pub track: u16,
@@ -62,7 +64,7 @@ impl Position {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InspectedTrack {
     pub source_name: String,
     pub title: Option<String>,
@@ -79,14 +81,14 @@ pub struct InspectedTrack {
     pub release_group_id: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Inspection {
     pub source_label: String,
     pub kind: SourceKind,
     pub tracks: Vec<InspectedTrack>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReleaseKind {
     Album,
     Single,
@@ -104,7 +106,7 @@ impl fmt::Display for ReleaseKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReleaseTrack {
     pub title: String,
     pub artist_credit: ArtistCredit,
@@ -113,12 +115,12 @@ pub struct ReleaseTrack {
     pub recording_id: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CandidateRelease {
     pub provider_key: String,
     pub title: String,
     pub album_artist: ArtistCredit,
-    pub original_year: u16,
+    pub original_year: Option<u16>,
     pub kind: ReleaseKind,
     pub tracks: Vec<ReleaseTrack>,
     pub release_group_id: Option<String>,
@@ -131,7 +133,8 @@ impl CandidateRelease {
             "{} — {} ({}, {}, {} {})",
             self.album_artist.display,
             self.title,
-            self.original_year,
+            self.original_year
+                .map_or_else(|| "year unknown".to_owned(), |year| year.to_string()),
             self.kind,
             self.tracks.len(),
             if self.tracks.len() == 1 {

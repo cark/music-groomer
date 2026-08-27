@@ -116,7 +116,7 @@ fn matched_single() -> DemoData {
         provider_key: "car-single".into(),
         title: "Car Song".into(),
         album_artist: credit.clone(),
-        original_year: 2024,
+        original_year: Some(2024),
         kind: ReleaseKind::Single,
         tracks: vec![ReleaseTrack {
             title: "Car Song".into(),
@@ -210,7 +210,7 @@ fn album_candidate(
         provider_key: key.into(),
         title: title.into(),
         album_artist: credit.clone(),
-        original_year: year,
+        original_year: Some(year),
         kind: ReleaseKind::Album,
         tracks: ["Opening", "Closing"]
             .into_iter()

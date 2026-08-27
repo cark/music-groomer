@@ -162,35 +162,44 @@ fn changes_for(
         (
             TagField::Artist,
             source.artist.clone(),
-            track.artist_credit.display.clone(),
+            Some(track.artist_credit.display.clone()),
         ),
         (
             TagField::AlbumArtist,
             source.album_artist.clone(),
-            release.album_artist.display.clone(),
+            Some(release.album_artist.display.clone()),
         ),
-        (TagField::Album, source.album.clone(), release.title.clone()),
+        (
+            TagField::Album,
+            source.album.clone(),
+            Some(release.title.clone()),
+        ),
         (
             TagField::OriginalYear,
             original_year,
-            release.original_year.to_string(),
+            release.original_year.map(|year| year.to_string()),
         ),
         (
             TagField::DiscNumber,
             disc_number,
-            track.position.disc.to_string(),
+            Some(track.position.disc.to_string()),
         ),
         (
             TagField::TrackNumber,
             track_number,
-            track.position.track.to_string(),
+            Some(track.position.track.to_string()),
         ),
-        (TagField::Title, source.title.clone(), track.title.clone()),
+        (
+            TagField::Title,
+            source.title.clone(),
+            Some(track.title.clone()),
+        ),
     ];
 
     let mut changes: Vec<_> = proposed
         .into_iter()
         .filter_map(|(field, before, after)| {
+            let after = after?;
             (before.as_deref() != Some(after.as_str())).then_some(TagChange {
                 field,
                 before,

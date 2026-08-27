@@ -57,9 +57,13 @@ impl MatchPolicy {
         inspection: &Inspection,
         candidates: Vec<CandidateRelease>,
     ) -> MatchDecision {
+        let prefer_single = inspection.kind == crate::domain::SourceKind::LooseFile
+            && candidates
+                .iter()
+                .any(|candidate| candidate.kind == crate::domain::ReleaseKind::Single);
         let mut ranked: Vec<_> = candidates
             .into_iter()
-            .map(|candidate| rank(inspection, candidate))
+            .map(|candidate| rank(inspection, candidate, prefer_single))
             .collect();
         ranked.sort_by_key(|candidate| Reverse(candidate.score));
 
@@ -78,7 +82,12 @@ impl MatchPolicy {
         let best = &usable[0];
         let runner_up_score = usable.get(1).map_or(i32::MIN, |candidate| candidate.score);
         let clear_lead = best.score.saturating_sub(runner_up_score) >= self.minimum_lead;
-        if best.score >= self.minimum_auto_score && clear_lead {
+        let minimum_auto_score = if inspection.kind == crate::domain::SourceKind::LooseFile {
+            180
+        } else {
+            self.minimum_auto_score
+        };
+        if best.score >= minimum_auto_score && clear_lead {
             MatchDecision::Selected(Box::new(best.clone()))
         } else {
             MatchDecision::NeedsChoice(usable)
@@ -86,11 +95,30 @@ impl MatchPolicy {
     }
 }
 
-fn rank(inspection: &Inspection, candidate: CandidateRelease) -> RankedCandidate {
+fn rank(
+    inspection: &Inspection,
+    candidate: CandidateRelease,
+    prefer_single: bool,
+) -> RankedCandidate {
     let mut score = 0;
     let mut reasons = Vec::new();
     let mut used = BTreeSet::new();
     let mut mappings = Vec::new();
+
+    if inspection.kind == crate::domain::SourceKind::LooseFile {
+        if candidate.kind == crate::domain::ReleaseKind::Single {
+            score += 100;
+            reasons.push(reason(
+                "the selected loose track has an official single release",
+            ));
+        } else if prefer_single {
+            score -= 80;
+            reasons.push(reason("an official single release is available instead"));
+        } else {
+            score += 100;
+            reasons.push(reason("no matching official single release was found"));
+        }
+    }
 
     if inspection.kind.requires_complete_release() {
         if inspection.tracks.len() == candidate.tracks.len() {
@@ -147,7 +175,7 @@ fn rank(inspection: &Inspection, candidate: CandidateRelease) -> RankedCandidate
         reasons.push(reason("album artist agrees"));
     }
     if let Some(year) = common_value(&inspection.tracks, |track| track.original_year)
-        && year == candidate.original_year
+        && Some(year) == candidate.original_year
     {
         score += 10;
         reasons.push(reason("original year agrees"));
@@ -343,7 +371,7 @@ mod tests {
             provider_key: key.into(),
             title: title.into(),
             album_artist: ArtistCredit::single("The Group"),
-            original_year: 1971,
+            original_year: Some(1971),
             kind: ReleaseKind::Album,
             tracks: vec![
                 ReleaseTrack {
@@ -465,7 +493,7 @@ mod tests {
             provider_key: "single".into(),
             title: "The Song".into(),
             album_artist: ArtistCredit::single("The Artist"),
-            original_year: 1982,
+            original_year: Some(1982),
             kind: ReleaseKind::Single,
             tracks: vec![ReleaseTrack {
                 title: "The Song".into(),
@@ -481,6 +509,58 @@ mod tests {
         let decision = MatchPolicy::default().decide(&inspection, vec![candidate]);
 
         assert!(matches!(decision, MatchDecision::Selected(_)));
+    }
+
+    #[test]
+    fn loose_track_prefers_an_official_single_over_the_same_album_track() {
+        let inspection = Inspection {
+            source_label: "song.flac".into(),
+            kind: SourceKind::LooseFile,
+            tracks: vec![InspectedTrack {
+                source_name: "song.flac".into(),
+                title: Some("The Song".into()),
+                artist: Some("The Artist".into()),
+                album: None,
+                album_artist: None,
+                artist_ids: Vec::new(),
+                album_artist_ids: Vec::new(),
+                compilation: None,
+                original_year: None,
+                position: None,
+                duration_ms: 200_000,
+                recording_id: None,
+                release_group_id: None,
+            }],
+        };
+        let release = |key: &str, kind: ReleaseKind| CandidateRelease {
+            provider_key: key.into(),
+            title: "The Song".into(),
+            album_artist: ArtistCredit::single("The Artist"),
+            original_year: Some(1982),
+            kind,
+            tracks: vec![ReleaseTrack {
+                title: "The Song".into(),
+                artist_credit: ArtistCredit::single("The Artist"),
+                position: Position::new(1, 1),
+                duration_ms: 200_500,
+                recording_id: None,
+            }],
+            release_group_id: Some(format!("group-{key}")),
+            exact_release_id: None,
+        };
+
+        let decision = MatchPolicy::default().decide(
+            &inspection,
+            vec![
+                release("album", ReleaseKind::Album),
+                release("single", ReleaseKind::Single),
+            ],
+        );
+
+        let MatchDecision::Selected(selected) = decision else {
+            panic!("expected single to be selected");
+        };
+        assert_eq!(selected.candidate.provider_key, "single");
     }
 
     #[test]

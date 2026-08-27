@@ -205,7 +205,7 @@ mod tests {
                 provider_key: "candidate".into(),
                 title: "Album".into(),
                 album_artist: ArtistCredit::single("Artist"),
-                original_year: 2000,
+                original_year: Some(2000),
                 kind: ReleaseKind::Album,
                 tracks: Vec::new(),
                 release_group_id: None,

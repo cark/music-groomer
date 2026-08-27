@@ -16,7 +16,7 @@ pub struct LayoutTrack {
 pub struct ReleaseLayout {
     pub album_artist: ArtistCredit,
     pub title: String,
-    pub original_year: u16,
+    pub original_year: Option<u16>,
     pub disc_count: u16,
     pub tracks: Vec<LayoutTrack>,
 }
@@ -70,8 +70,10 @@ impl LayoutPolicy {
     pub fn release(&self, release: &ReleaseLayout) -> Result<PlannedLayout, LayoutError> {
         let artist = component("album artist", &release.album_artist.display)?;
         let title = component("release title", &release.title)?;
-        let directory =
-            PathBuf::from(artist).join(format!("{} - {}", release.original_year, title));
+        let release_directory = release
+            .original_year
+            .map_or_else(|| title.clone(), |year| format!("{year} - {title}"));
+        let directory = PathBuf::from(artist).join(release_directory);
         let mut paths = Vec::with_capacity(release.tracks.len());
         let mut unique = BTreeSet::new();
 
@@ -181,7 +183,7 @@ mod tests {
             .release(&ReleaseLayout {
                 album_artist: ArtistCredit::single("Ten Years After"),
                 title: "Evolution".into(),
-                original_year: 1971,
+                original_year: Some(1971),
                 disc_count: 1,
                 tracks: vec![LayoutTrack {
                     title: "I'd Love to Change the World".into(),
@@ -213,7 +215,7 @@ mod tests {
                     &["Niels-Henning Ørsted Pedersen", "Kenny Drew"],
                 ),
                 title: "Duo".into(),
-                original_year: 1973,
+                original_year: Some(1973),
                 disc_count: 1,
                 tracks: vec![LayoutTrack {
                     title: "In the Still of the Woods".into(),
@@ -236,7 +238,7 @@ mod tests {
             .release(&ReleaseLayout {
                 album_artist: ArtistCredit::single("Various Artists"),
                 title: "A Sampler".into(),
-                original_year: 1999,
+                original_year: Some(1999),
                 disc_count: 1,
                 tracks: vec![LayoutTrack {
                     title: "Opening".into(),
@@ -259,7 +261,7 @@ mod tests {
             .release(&ReleaseLayout {
                 album_artist: ArtistCredit::single("Artist"),
                 title: "Long Album".into(),
-                original_year: 2001,
+                original_year: Some(2001),
                 disc_count: 2,
                 tracks: vec![
                     LayoutTrack {
@@ -290,7 +292,7 @@ mod tests {
             .release(&ReleaseLayout {
                 album_artist: ArtistCredit::single("Artist"),
                 title: "A Great Single".into(),
-                original_year: 1982,
+                original_year: Some(1982),
                 disc_count: 1,
                 tracks: vec![LayoutTrack {
                     title: "A Great Song".into(),
@@ -324,6 +326,26 @@ mod tests {
     }
 
     #[test]
+    fn omits_an_unknown_year_instead_of_inventing_one() {
+        let layout = LayoutPolicy
+            .release(&ReleaseLayout {
+                album_artist: ArtistCredit::single("Artist"),
+                title: "Undated Album".into(),
+                original_year: None,
+                disc_count: 1,
+                tracks: vec![LayoutTrack {
+                    title: "Track".into(),
+                    disc: 1,
+                    track: 1,
+                    extension: "flac".into(),
+                }],
+            })
+            .expect("missing year should be supported");
+
+        assert_eq!(layout.directory, PathBuf::from("Artist/Undated Album"));
+    }
+
+    #[test]
     fn sanitizes_only_awkward_path_content_and_preserves_unicode() {
         let layout = LayoutPolicy
             .standalone(&StandaloneLayout {
@@ -345,7 +367,7 @@ mod tests {
             .release(&ReleaseLayout {
                 album_artist: ArtistCredit::single("Artist"),
                 title: "Album".into(),
-                original_year: 2000,
+                original_year: Some(2000),
                 disc_count: 1,
                 tracks: vec![
                     LayoutTrack {
