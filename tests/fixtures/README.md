@@ -4,6 +4,9 @@ The files under `audio/` contain 0.25 seconds of generated silence. They are
 small test seeds, not copied music. Tests copy a seed into a temporary directory
 before adding or changing tags.
 
+`seed-video.mp4` is a similarly tiny generated rejection fixture containing
+both a synthetic black video track and silence.
+
 Regenerate them only through the pinned development environment:
 
 ```text

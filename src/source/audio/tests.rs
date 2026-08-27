@@ -42,6 +42,19 @@ fn recognizes_every_claimed_fixture_from_its_contents() {
 }
 
 #[test]
+fn rejects_mp4_with_a_video_track() {
+    let path = fixture("seed-video.mp4");
+    let probe = LoftyAudioReader
+        .probe(&path)
+        .expect("a valid audiovisual MP4 should be inspectable");
+
+    let AudioProbe::Unsupported(description) = probe else {
+        panic!("a video-bearing MP4 must not be accepted as M4A audio");
+    };
+    assert!(description.contains("audio and video"));
+}
+
+#[test]
 fn every_claimed_format_satisfies_the_preservation_contract() {
     for (name, expected_format) in FIXTURES {
         prove_preservation(name, *expected_format);

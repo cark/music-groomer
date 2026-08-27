@@ -75,9 +75,11 @@ impl LoftyAudioReader {
         let Some(file_type) = probe.file_type() else {
             return Ok(AudioProbe::NotAudio);
         };
-        let format = match supported_format(path, file_type)? {
-            Some(format) => format,
-            None => return Ok(AudioProbe::Unsupported(format!("{file_type:?}"))),
+        let format = match recognized_format(path, file_type)? {
+            FormatRecognition::Supported(format) => format,
+            FormatRecognition::Unsupported(description) => {
+                return Ok(AudioProbe::Unsupported(description));
+            }
         };
         let tagged = probe
             .read()
@@ -139,17 +141,27 @@ impl LoftyAudioReader {
     }
 }
 
-fn supported_format(
+enum FormatRecognition {
+    Supported(AudioFormat),
+    Unsupported(String),
+}
+
+fn recognized_format(
     path: &Path,
     file_type: FileType,
-) -> Result<Option<AudioFormat>, AudioReadError> {
+) -> Result<FormatRecognition, AudioReadError> {
     match file_type {
-        FileType::Flac => Ok(Some(AudioFormat::Flac)),
-        FileType::Opus => Ok(Some(AudioFormat::Opus)),
-        FileType::Vorbis => Ok(Some(AudioFormat::OggVorbis)),
-        FileType::Mpeg => mpeg_format(path),
+        FileType::Flac => Ok(FormatRecognition::Supported(AudioFormat::Flac)),
+        FileType::Opus => Ok(FormatRecognition::Supported(AudioFormat::Opus)),
+        FileType::Vorbis => Ok(FormatRecognition::Supported(AudioFormat::OggVorbis)),
+        FileType::Mpeg => mpeg_format(path).map(|format| {
+            format.map_or_else(
+                || FormatRecognition::Unsupported("MPEG audio other than MP3".to_owned()),
+                FormatRecognition::Supported,
+            )
+        }),
         FileType::Mp4 => mp4_format(path),
-        _ => Ok(None),
+        _ => Ok(FormatRecognition::Unsupported(format!("{file_type:?}"))),
     }
 }
 
@@ -160,14 +172,22 @@ fn mpeg_format(path: &Path) -> Result<Option<AudioFormat>, AudioReadError> {
     Ok((*mpeg.properties().layer() == Layer::Layer3).then_some(AudioFormat::Mp3))
 }
 
-fn mp4_format(path: &Path) -> Result<Option<AudioFormat>, AudioReadError> {
+fn mp4_format(path: &Path) -> Result<FormatRecognition, AudioReadError> {
+    let mut track_reader = File::open(path)?;
+    if super::mp4::contains_video(&mut track_reader)
+        .map_err(|error| AudioReadError::Parse(format!("cannot inspect MP4 tracks: {error}")))?
+    {
+        return Ok(FormatRecognition::Unsupported(
+            "MP4 containing both audio and video".to_owned(),
+        ));
+    }
     let mut file = File::open(path)?;
     let mp4 = Mp4File::read_from(&mut file, ParseOptions::new())
         .map_err(|error| AudioReadError::Parse(error.to_string()))?;
     Ok(match mp4.properties().codec() {
-        Some(Mp4Codec::AAC) => Some(AudioFormat::M4aAac),
-        Some(Mp4Codec::ALAC) => Some(AudioFormat::M4aAlac),
-        _ => None,
+        Some(Mp4Codec::AAC) => FormatRecognition::Supported(AudioFormat::M4aAac),
+        Some(Mp4Codec::ALAC) => FormatRecognition::Supported(AudioFormat::M4aAlac),
+        codec => FormatRecognition::Unsupported(format!("MP4 audio codec {codec:?}")),
     })
 }
 

@@ -23,4 +23,12 @@ ffmpeg "${common[@]}" -c:a alac "$fixture_dir/seed-alac.m4a"
 ffmpeg "${common[@]}" -c:a libvorbis -q:a 2 "$fixture_dir/seed.ogg"
 ffmpeg "${common[@]}" -c:a libopus -b:a 96k "$fixture_dir/seed.opus"
 
+ffmpeg \
+  -hide_banner -loglevel error \
+  -f lavfi -i color=c=black:s=64x64:r=10 \
+  -f lavfi -i anullsrc=r=44100:cl=stereo \
+  -t 0.25 -map_metadata -1 \
+  -fflags +bitexact -flags:a +bitexact -flags:v +bitexact \
+  -c:v mpeg4 -c:a aac -y "$fixture_dir/seed-video.mp4"
+
 echo "Generated synthetic silent audio fixtures in $fixture_dir"

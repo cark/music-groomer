@@ -7,6 +7,7 @@ rust-version = "1.97"
 [dependencies]
 image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 lofty = "0.25.1"
+mp4parse = "0.17"
 
 [dev-dependencies]
 tempfile = "3"

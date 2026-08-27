@@ -155,6 +155,35 @@ fn supported_extension_with_invalid_contents_blocks() {
     assert!(has_notice(&inspection, NoticeKind::CorruptAudio));
 }
 
+#[test]
+fn readable_but_invalid_artwork_warns_and_is_preserved() {
+    let temporary = TempDir::new().expect("temporary directory should be created");
+    fs::copy(fixture("seed.flac"), temporary.path().join("track.flac"))
+        .expect("audio fixture should be copied");
+    let path = temporary.path().join("cover.png");
+    write_image(&path, image::ImageFormat::Png);
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .expect("artwork fixture should open");
+    file.set_len(40)
+        .expect("artwork fixture should be truncated");
+
+    let inspection = SourceInspector::default()
+        .inspect(temporary.path())
+        .expect("source should remain inspectable");
+
+    assert!(!inspection.is_blocked());
+    assert!(has_notice(&inspection, NoticeKind::UnsupportedImage));
+    assert!(
+        inspection
+            .ancillary
+            .iter()
+            .any(|file| file.relative_path == Path::new("cover.png"))
+    );
+    assert!(inspection.artwork.is_empty());
+}
+
 #[cfg(unix)]
 #[test]
 fn special_files_block_with_their_path() {

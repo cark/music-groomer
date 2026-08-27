@@ -26,9 +26,13 @@ pub(super) fn probe(path: &Path) -> io::Result<ArtworkProbe> {
             Some(format) => {
                 let dimensions = ImageReader::open(path)?
                     .with_guessed_format()?
-                    .into_dimensions()
-                    .map_err(io::Error::other)?;
-                Ok(ArtworkProbe::Supported { format, dimensions })
+                    .into_dimensions();
+                match dimensions {
+                    Ok(dimensions) => Ok(ArtworkProbe::Supported { format, dimensions }),
+                    Err(error) => Ok(ArtworkProbe::Unsupported(format!(
+                        "{format} image failed validation: {error}"
+                    ))),
+                }
             }
             None => Ok(ArtworkProbe::Unsupported(format_label(format))),
         },
