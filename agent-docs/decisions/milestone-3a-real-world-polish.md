@@ -64,5 +64,6 @@ workspace split, or wider matching redesign.
   3 prevents old literal-title misses from bypassing the new behavior.
 - Offline tests cover semantic menu/path events, colored and plain rendering,
   common real-source ancillary types, exact-title precedence, and the fallback
-  retry. The final Evolution rerun remains a user-driven read-only demo in the
-  user's own terminal.
+  retry. The user completed the final Evolution rerun in their own terminal and
+  accepted the improved visual presentation and milestone 3a functionality on
+  2026-08-27.

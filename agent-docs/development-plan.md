@@ -15,8 +15,9 @@ This page tracks implementation. Durable product reasoning belongs in the
 - Milestone 3a was authorized, implemented, reviewed, corrected, and verified
   on 2026-08-27.
 - The focused milestone 3a real-world polish set was authorized, implemented,
-  and verified on 2026-08-27; its final read-only Evolution rerun is a
-  user-driven demo.
+  and verified on 2026-08-27. The user completed the final read-only Evolution
+  terminal exercise and accepted milestone 3a's functionality and revised
+  visual presentation.
 
 ## Working rules
 

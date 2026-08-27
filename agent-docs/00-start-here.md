@@ -7,8 +7,9 @@ must never modify the selected source.
 ## Current phase
 
 Product and technical direction is aligned through milestone 3a. Milestones 1,
-2, and 3a are implemented, reviewed, and verified. The accepted milestone 3a
-review corrections are complete. Milestone 3b remains pending.
+2, and 3a are implemented, reviewed, verified, and accepted by the user. The
+final milestone 3a real-source terminal exercise confirmed that the visual
+interaction and functionality are satisfactory. Milestone 3b remains pending.
 
 ## Task routing
 
