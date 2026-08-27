@@ -1,5 +1,11 @@
 # music-groomer
 
-A fresh Rust project for carefully grooming music metadata and presentation.
+A standalone Rust tool for carefully grooming album and loose-track metadata,
+artwork, filenames, and library layout without modifying the selected source.
 
-The application design is intentionally not part of this initial skeleton.
+The v0.1 product and technical direction are aligned; application implementation
+has not started.
+
+Agents and contributors should begin with
+[agent-docs/00-start-here.md](agent-docs/00-start-here.md). The current execution
+status is in [agent-docs/development-plan.md](agent-docs/development-plan.md).
