@@ -1,0 +1,228 @@
+use std::path::Path;
+
+use crate::domain::{ArtistCredit, CandidateRelease, InspectedTrack, ReleaseTrack, SourceKind};
+use crate::layout::{LayoutPolicy, LayoutTrack, ReleaseLayout, StandaloneLayout};
+use crate::matching::RankedCandidate;
+use crate::plan::{
+    ArtworkChoice, ArtworkOrigin, GroomingPlan, MatchSelection, MetadataBasis, TagChange, TagField,
+    TrackPlan,
+};
+
+use super::DemoError;
+use super::fixtures::DemoData;
+
+pub(super) fn coherent_standalone(data: &DemoData) -> bool {
+    let inspection = &data.inspection;
+    inspection.kind == SourceKind::LooseFile
+        && inspection.tracks.len() == 1
+        && inspection.tracks[0]
+            .artist
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+        && inspection.tracks[0]
+            .title
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+}
+
+pub(super) fn build_plan(
+    data: &DemoData,
+    selected: Option<Box<RankedCandidate>>,
+    match_selection: MatchSelection,
+    destination_root: &Path,
+) -> Result<GroomingPlan, DemoError> {
+    let (metadata, reasons, relative_layout, track_changes) = match selected {
+        Some(selected) => {
+            let candidate = selected.candidate.clone();
+            let disc_count = candidate
+                .tracks
+                .iter()
+                .map(|track| track.position.disc)
+                .max()
+                .unwrap_or(1);
+            let tracks = selected
+                .mappings
+                .iter()
+                .map(|mapping| {
+                    let target = &candidate.tracks[mapping.candidate_index];
+                    LayoutTrack {
+                        title: target.title.clone(),
+                        disc: target.position.disc,
+                        track: target.position.track,
+                        extension: data.extensions[mapping.source_index].clone(),
+                    }
+                })
+                .collect();
+            let layout = LayoutPolicy
+                .release(&ReleaseLayout {
+                    album_artist: candidate.album_artist.clone(),
+                    title: candidate.title.clone(),
+                    original_year: candidate.original_year,
+                    disc_count,
+                    tracks,
+                })
+                .map_err(|error| DemoError::InvalidDemoData(error.to_string()))?;
+            let changes = selected
+                .mappings
+                .iter()
+                .map(|mapping| {
+                    changes_for(
+                        &data.inspection.tracks[mapping.source_index],
+                        &candidate,
+                        &candidate.tracks[mapping.candidate_index],
+                    )
+                })
+                .collect();
+            (
+                MetadataBasis::MusicBrainz(candidate),
+                selected
+                    .reasons
+                    .iter()
+                    .map(|reason| reason.summary.clone())
+                    .collect(),
+                layout,
+                changes,
+            )
+        }
+        None => {
+            let source = &data.inspection.tracks[0];
+            let artist = source.artist.as_ref().ok_or_else(|| {
+                DemoError::InvalidDemoData("standalone track has no artist".into())
+            })?;
+            let title = source.title.as_ref().ok_or_else(|| {
+                DemoError::InvalidDemoData("standalone track has no title".into())
+            })?;
+            let layout = LayoutPolicy
+                .standalone(&StandaloneLayout {
+                    artist: ArtistCredit::single(artist),
+                    title: title.clone(),
+                    extension: data.extensions[0].clone(),
+                })
+                .map_err(|error| DemoError::InvalidDemoData(error.to_string()))?;
+            (
+                MetadataBasis::ExistingTags,
+                vec!["existing artist and title are internally coherent".into()],
+                layout,
+                vec![Vec::new()],
+            )
+        }
+    };
+
+    let destination = destination_root.join(&relative_layout.directory);
+    let tracks = data
+        .inspection
+        .tracks
+        .iter()
+        .zip(relative_layout.tracks)
+        .zip(track_changes)
+        .map(|((source, relative_destination), tag_changes)| TrackPlan {
+            source_name: source.source_name.clone(),
+            destination: destination_root.join(relative_destination),
+            tag_changes,
+        })
+        .collect();
+    let artwork = data
+        .source_artwork
+        .clone()
+        .or_else(|| data.provider_artwork.clone())
+        .unwrap_or_else(no_artwork);
+    let artwork_alternatives = if data.source_artwork.is_some() {
+        data.provider_artwork.clone().into_iter().collect()
+    } else {
+        Vec::new()
+    };
+
+    Ok(GroomingPlan {
+        source_label: data.inspection.source_label.clone(),
+        metadata,
+        match_selection,
+        match_reasons: reasons,
+        destination_root: destination_root.to_owned(),
+        destination,
+        tracks,
+        artwork,
+        artwork_alternatives,
+        warnings: data.warning.clone().into_iter().collect(),
+        preserved_embedded_artwork: data.embedded_artwork_count,
+    })
+}
+
+fn changes_for(
+    source: &InspectedTrack,
+    release: &CandidateRelease,
+    track: &ReleaseTrack,
+) -> Vec<TagChange> {
+    let original_year = source.original_year.map(|year| year.to_string());
+    let disc_number = source.position.map(|position| position.disc.to_string());
+    let track_number = source.position.map(|position| position.track.to_string());
+    let proposed = vec![
+        (
+            TagField::Artist,
+            source.artist.clone(),
+            track.artist_credit.display.clone(),
+        ),
+        (
+            TagField::AlbumArtist,
+            source.album_artist.clone(),
+            release.album_artist.display.clone(),
+        ),
+        (TagField::Album, source.album.clone(), release.title.clone()),
+        (
+            TagField::OriginalYear,
+            original_year,
+            release.original_year.to_string(),
+        ),
+        (
+            TagField::DiscNumber,
+            disc_number,
+            track.position.disc.to_string(),
+        ),
+        (
+            TagField::TrackNumber,
+            track_number,
+            track.position.track.to_string(),
+        ),
+        (TagField::Title, source.title.clone(), track.title.clone()),
+    ];
+
+    let mut changes: Vec<_> = proposed
+        .into_iter()
+        .filter_map(|(field, before, after)| {
+            (before.as_deref() != Some(after.as_str())).then_some(TagChange {
+                field,
+                before,
+                after,
+            })
+        })
+        .collect();
+
+    if source.recording_id != track.recording_id {
+        if let Some(recording_id) = &track.recording_id {
+            changes.push(TagChange {
+                field: TagField::MusicBrainzRecordingId,
+                before: source.recording_id.clone(),
+                after: recording_id.clone(),
+            });
+        }
+    }
+    if source.release_group_id != release.release_group_id {
+        if let Some(release_group_id) = &release.release_group_id {
+            changes.push(TagChange {
+                field: TagField::MusicBrainzReleaseGroupId,
+                before: source.release_group_id.clone(),
+                after: release_group_id.clone(),
+            });
+        }
+    }
+
+    changes
+}
+
+fn no_artwork() -> ArtworkChoice {
+    ArtworkChoice {
+        origin: ArtworkOrigin::None,
+        label: "No sidecar artwork".into(),
+        dimensions: None,
+        output_name: None,
+    }
+}

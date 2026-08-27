@@ -95,6 +95,7 @@ pub struct GroomingPlan {
     pub metadata: MetadataBasis,
     pub match_selection: MatchSelection,
     pub match_reasons: Vec<String>,
+    pub destination_root: PathBuf,
     pub destination: PathBuf,
     pub tracks: Vec<TrackPlan>,
     pub artwork: ArtworkChoice,
@@ -130,7 +131,52 @@ impl GroomingPlan {
         }
         self
     }
+
+    pub fn with_destination_root(mut self, destination_root: PathBuf) -> Result<Self, PlanError> {
+        let relative_destination = self
+            .destination
+            .strip_prefix(&self.destination_root)
+            .map_err(|_| PlanError::DestinationOutsideRoot(self.destination.clone()))?
+            .to_owned();
+        let relative_tracks: Result<Vec<_>, _> = self
+            .tracks
+            .iter()
+            .map(|track| {
+                track
+                    .destination
+                    .strip_prefix(&self.destination_root)
+                    .map(PathBuf::from)
+                    .map_err(|_| PlanError::DestinationOutsideRoot(track.destination.clone()))
+            })
+            .collect();
+
+        self.destination = destination_root.join(relative_destination);
+        for (track, relative) in self.tracks.iter_mut().zip(relative_tracks?) {
+            track.destination = destination_root.join(relative);
+        }
+        self.destination_root = destination_root;
+        Ok(self)
+    }
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PlanError {
+    DestinationOutsideRoot(PathBuf),
+}
+
+impl fmt::Display for PlanError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DestinationOutsideRoot(path) => write!(
+                formatter,
+                "planned destination {} is outside its destination root",
+                path.display()
+            ),
+        }
+    }
+}
+
+impl std::error::Error for PlanError {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ApplyReport {
@@ -161,6 +207,7 @@ mod tests {
             }),
             match_selection: MatchSelection::Automatic,
             match_reasons: Vec::new(),
+            destination_root: PathBuf::new(),
             destination: "Artist/2000 - Album".into(),
             tracks: vec![TrackPlan {
                 source_name: "old.flac".into(),
@@ -190,5 +237,21 @@ mod tests {
         assert_eq!(plan.tag_change_count(), 1);
         assert_eq!(plan.filename_change_count(), 1);
         assert_eq!(plan.tracks[0].tag_changes[0].field, TagField::Title);
+    }
+
+    #[test]
+    fn relocates_the_complete_plan_without_changing_relative_layout() {
+        let relocated = plan()
+            .with_destination_root("/media/music".into())
+            .expect("plan paths begin under their root");
+
+        assert_eq!(
+            relocated.destination,
+            PathBuf::from("/media/music/Artist/2000 - Album")
+        );
+        assert_eq!(
+            relocated.tracks[0].destination,
+            PathBuf::from("/media/music/Artist/2000 - Album/01 - New.flac")
+        );
     }
 }

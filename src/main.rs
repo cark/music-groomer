@@ -1,5 +1,5 @@
 use std::env;
-use std::io;
+use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -52,7 +52,8 @@ fn run() -> Result<(), String> {
 
     let stdin = io::stdin();
     let stdout = io::stdout();
-    let mut interaction = StdioInteraction::new(stdin.lock(), stdout.lock());
+    let styling = stdout.is_terminal() && env::var_os("NO_COLOR").is_none();
+    let mut interaction = StdioInteraction::new(stdin.lock(), stdout.lock(), styling);
     demo::run(&mut interaction, scenario, output.as_deref())
         .map(|_| ())
         .map_err(|error| error.to_string())
@@ -67,4 +68,6 @@ fn print_help() {
     println!("  music-groomer demo [SCENARIO] [--output DIRECTORY]");
     println!();
     println!("Omit SCENARIO to choose within the guided session.");
+    println!("The destination can also be changed inside the preview.");
+    println!("Any --output directory must already exist.");
 }
