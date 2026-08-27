@@ -185,9 +185,12 @@ normal help.
 5. Modify only staged copies and write the sidecar.
 6. Re-read and validate the planned result, including preservation of embedded
    pictures.
-7. If staging and output share a filesystem, rename staging to the final path.
+7. If staging and output share a filesystem, exclusively rename staging to the
+   final path without replacing a destination that appeared meanwhile.
    Otherwise, copy through a marked hidden publication directory on the output
-   filesystem and rename it only when complete.
+   filesystem and perform the same exclusive rename only when complete. A
+   narrow platform primitive provides this guarantee through `rustix` on Linux
+   and macOS and a native no-replace rename on Windows.
 8. Remove temporary data after success and all handled failures. On later runs,
    remove abandoned output-side publication directories only after verifying
    their ownership marker.

@@ -161,6 +161,11 @@ album atomically into place. Otherwise, copy it through a clearly marked hidden
 publication directory beside the destination, then rename that directory. Clean
 it after handled failures. A later run may automatically remove an abandoned
 publication directory only when its marker proves music-groomer created it.
+When the destination root is next used, inspect only music-groomer's dedicated
+partial area rather than scanning the library. Show each abandoned partial and
+its size, then ask before removal with a guided-mode default of yes. A cleanup
+failure names the path and cause but does not block a new Apply when collision
+and free-space checks still pass.
 
 A hard crash during cross-filesystem publication can still leave short-lived
 output-side data. Keep this mechanism direct and testable; do not add a job

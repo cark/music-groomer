@@ -88,6 +88,21 @@ preflight. Clean temporary work after success and handled failure. Rename
 atomically when output shares the filesystem; otherwise copy through a marked
 hidden publication directory beside the destination and then rename it.
 
+The final rename must also refuse replacement atomically: a destination created
+after the earlier collision check must survive untouched. Keep the
+platform-specific code to one narrow publication primitive backed by
+`rustix`'s exclusive rename operation on Linux and macOS and the equivalent
+native no-replace rename on Windows. Linux, macOS, and Windows must all retain
+the guarantee from v0.1 even when a platform cannot be exercised locally; do
+not weaken it with a check-then-rename fallback. Ordinary `Ctrl-C` termination
+may occur before or after this syscall, but cannot expose a half-renamed
+directory.
+
 Clean output-side publication data after handled failures. On a later run,
-remove an abandoned directory only after verifying its ownership marker. Prefer
-simple, testable behavior over a job system or exotic filesystem machinery.
+inspect only music-groomer's dedicated partial area under the destination root,
+not the library tree. If a marked abandoned publication is found, show its size
+and ask before removing it, defaulting to yes in the guided interface. Remove
+only after verifying its ownership marker. If removal fails, report the exact
+path and cause but allow a new Apply when its own collision and free-space
+checks still pass. Prefer simple, testable behavior over a job system or exotic
+filesystem machinery.
