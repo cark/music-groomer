@@ -150,9 +150,9 @@ fn clear_cache(cache: &ProviderCache) -> Result<(), String> {
     Ok(())
 }
 
-fn with_stdio_interaction<T>(
-    action: impl FnOnce(&mut StdioInteraction<io::StdinLock<'_>, io::Stdout>) -> io::Result<T>,
-) -> io::Result<T> {
+fn with_stdio_interaction<T, E>(
+    action: impl FnOnce(&mut StdioInteraction<io::StdinLock<'_>, io::Stdout>) -> Result<T, E>,
+) -> Result<T, E> {
     let stdin = io::stdin();
     let stdout = io::stdout();
     let interactive = stdout.is_terminal();
@@ -181,16 +181,7 @@ fn run_demo(scenario: Option<&str>, output: Option<PathBuf>) -> Result<(), Strin
     let scenario = scenario.map(|value| {
         DemoScenario::parse(value).expect("Clap accepts only supported demo scenario names")
     });
-    let stdin = io::stdin();
-    let stdout = io::stdout();
-    let interactive = stdout.is_terminal();
-    let styling = interactive && std::env::var_os("NO_COLOR").is_none();
-    let mut interaction = if interactive {
-        StdioInteraction::for_terminal(stdin.lock(), stdout, styling)
-    } else {
-        StdioInteraction::new(stdin.lock(), stdout, styling)
-    };
-    demo::run(&mut interaction, scenario, output.as_deref())
+    with_stdio_interaction(|interaction| demo::run(interaction, scenario, output.as_deref()))
         .map(|_| ())
         .map_err(|error| error.to_string())
 }
@@ -203,52 +194,45 @@ fn run_inspection(
     let inspection = SourceInspector::default()
         .inspect(&source)
         .map_err(|error| error.to_string())?;
-    let stdin = io::stdin();
-    let stdout = io::stdout();
-    let interactive = stdout.is_terminal();
-    let styling = interactive && std::env::var_os("NO_COLOR").is_none();
-    let mut interaction = if interactive {
-        StdioInteraction::for_terminal(stdin.lock(), stdout, styling)
-    } else {
-        StdioInteraction::new(stdin.lock(), stdout, styling)
-    };
-    if inspection.is_blocked() {
-        inspection_ui::run(&mut interaction, &inspection)
+    with_stdio_interaction(|interaction| {
+        if inspection.is_blocked() {
+            inspection_ui::run(interaction, &inspection)
+                .map_err(|error| format!("terminal interaction failed: {error}"))?;
+            Err("inspection found blocking problems; the source remains untouched".to_owned())
+        } else {
+            inspection_ui::run_before_matching(interaction, &inspection)
+                .map_err(|error| format!("terminal interaction failed: {error}"))?;
+            let config = AppConfig::load().map_err(|error| error.to_string())?;
+            let cache = provider_cache(&config, cache_directory)?;
+            let mut viewer = SystemArtworkViewer::new();
+            let mut fingerprinter = FpcalcFingerprinter::default();
+            let mut acoustid = AcoustId::new();
+            let result = guided_matching::run_with_identification(
+                interaction,
+                &inspection,
+                offline,
+                guided_matching::GuidedProviders::new(
+                    MusicBrainzProvider::new(),
+                    CoverArtArchive::new(),
+                    &mut fingerprinter,
+                    &mut acoustid,
+                ),
+                cache,
+                &mut viewer,
+            )
             .map_err(|error| format!("terminal interaction failed: {error}"))?;
-        Err("inspection found blocking problems; the source remains untouched".to_owned())
-    } else {
-        inspection_ui::run_before_matching(&mut interaction, &inspection)
-            .map_err(|error| format!("terminal interaction failed: {error}"))?;
-        let config = AppConfig::load().map_err(|error| error.to_string())?;
-        let cache = provider_cache(&config, cache_directory)?;
-        let mut viewer = SystemArtworkViewer::new();
-        let mut fingerprinter = FpcalcFingerprinter::default();
-        let mut acoustid = AcoustId::new();
-        let result = guided_matching::run_with_identification(
-            &mut interaction,
-            &inspection,
-            offline,
-            guided_matching::GuidedProviders::new(
-                MusicBrainzProvider::new(),
-                CoverArtArchive::new(),
-                &mut fingerprinter,
-                &mut acoustid,
-            ),
-            cache,
-            &mut viewer,
-        )
-        .map_err(|error| format!("terminal interaction failed: {error}"))?;
-        if result.metadata == MetadataSelection::Cancelled {
-            let (domain_inspection, _) = source_inspection(&inspection);
-            if coherent_existing_metadata(&domain_inspection).is_err() {
-                return Err(
-                    "no reliable metadata result is available; the source remains untouched"
-                        .to_owned(),
-                );
+            if result.metadata == MetadataSelection::Cancelled {
+                let (domain_inspection, _) = source_inspection(&inspection);
+                if coherent_existing_metadata(&domain_inspection).is_err() {
+                    return Err(
+                        "no reliable metadata result is available; the source remains untouched"
+                            .to_owned(),
+                    );
+                }
             }
+            Ok(())
         }
-        Ok(())
-    }
+    })
 }
 
 fn provider_cache(

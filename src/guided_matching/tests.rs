@@ -45,6 +45,11 @@ struct FakeFingerprinter {
     calls: usize,
 }
 
+struct QueuedFingerprinter {
+    calls: usize,
+    results: VecDeque<Result<AudioFingerprint, FingerprintError>>,
+}
+
 impl AudioFingerprinter for FakeFingerprinter {
     fn calculate(
         &mut self,
@@ -60,8 +65,28 @@ impl AudioFingerprinter for FakeFingerprinter {
     }
 }
 
+impl AudioFingerprinter for QueuedFingerprinter {
+    fn calculate(
+        &mut self,
+        _audio: &std::path::Path,
+        progress: &mut dyn FingerprintProgress,
+    ) -> Result<AudioFingerprint, FingerprintError> {
+        self.calls += 1;
+        progress.calculating(std::path::Path::new("track.flac"))?;
+        self.results
+            .pop_front()
+            .unwrap_or(Err(FingerprintError::InvalidOutput(
+                "fake result queue exhausted".into(),
+            )))
+    }
+}
+
 struct FakeAcoustId {
     score: f64,
+}
+
+struct QueuedAcoustId {
+    responses: VecDeque<AcoustIdResponse>,
 }
 
 impl AcoustIdProvider for FakeAcoustId {
@@ -80,6 +105,34 @@ impl AcoustIdProvider for FakeAcoustId {
                 score: self.score,
                 recording_ids: vec!["recording".into()],
             }],
+        })
+    }
+}
+
+impl AcoustIdProvider for QueuedAcoustId {
+    fn lookup(
+        &mut self,
+        _fingerprint: &AudioFingerprint,
+        _progress: &mut dyn ProviderProgress,
+    ) -> Result<AcoustIdResponse, ProviderError> {
+        Ok(self.responses.pop_front().unwrap_or_default())
+    }
+}
+
+struct ScriptedMetadata {
+    results: VecDeque<Result<ProviderSearchResult, ProviderError>>,
+}
+
+impl MetadataProvider for ScriptedMetadata {
+    fn search(
+        &mut self,
+        _search: &ProviderSearch,
+        _progress: &mut dyn ProviderProgress,
+    ) -> Result<ProviderSearchResult, ProviderError> {
+        self.results.pop_front().unwrap_or_else(|| {
+            Err(ProviderError::Network(
+                "fake metadata result queue exhausted".into(),
+            ))
         })
     }
 }
@@ -241,7 +294,7 @@ fn artwork_view_action_uses_the_viewer_boundary() {
         dimensions: (10, 20),
     };
 
-    view_artwork(
+    artwork::view_artwork(
         &mut interaction,
         &source(),
         &ArtworkSelection::CoverArtArchive(artwork),
@@ -360,6 +413,8 @@ fn existing_source_release_group_offers_artwork_but_does_not_select_it_automatic
     );
     assert!(interaction.transcript.contains("via existing source ID"));
     assert!(interaction.transcript.contains("Artwork alternative"));
+    assert!(interaction.transcript.contains("JPEG 30x30"));
+    assert!(!interaction.transcript.contains("1200px"));
 }
 
 #[test]
@@ -463,7 +518,7 @@ fn inconsistent_source_identity_tags_are_visible_before_textual_fallback() {
     inspection.tracks[0].release_group_id = Some("first-group".into());
     inspection.tracks.push(second);
 
-    let warnings = identifier_warnings(&inspection);
+    let warnings = warnings::identifier_warnings(&inspection);
 
     assert!(
         warnings
@@ -602,11 +657,338 @@ fn provider_refresh_recalculates_and_refreshes_fingerprint_identification() {
     assert!(interaction.transcript.contains("preview did not change"));
 }
 
+#[test]
+fn refresh_retries_fingerprinting_after_the_initial_calculation_failed() {
+    let temporary = TempDir::new().unwrap();
+    let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+    let mut interaction = ScriptedInteraction {
+        answers: VecDeque::from(["".into(), "f".into(), "y".into(), "d".into()]),
+        transcript: String::new(),
+    };
+    let mut fingerprinter = QueuedFingerprinter {
+        calls: 0,
+        results: VecDeque::from([Err(FingerprintError::Unavailable), Ok(test_fingerprint())]),
+    };
+    let mut acoustid = FakeAcoustId { score: 0.95 };
+
+    let result = run_with_identification(
+        &mut interaction,
+        &minimally_tagged_track(),
+        false,
+        GuidedProviders::new(
+            FakeMetadata {
+                results: VecDeque::from([Vec::new(), Vec::new(), vec![single_candidate()]]),
+            },
+            NoArtwork,
+            &mut fingerprinter,
+            &mut acoustid,
+        ),
+        cache,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    assert_eq!(fingerprinter.calls, 2);
+    assert!(result.identification.is_some());
+    assert_eq!(
+        result.metadata_provenance,
+        MetadataProvenance::MusicBrainzWithFingerprint
+    );
+}
+
+#[test]
+fn refresh_merges_textual_and_fingerprint_candidates() {
+    let temporary = TempDir::new().unwrap();
+    let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+    let mut interaction = ScriptedInteraction {
+        answers: VecDeque::from(["f".into(), "d".into()]),
+        transcript: String::new(),
+    };
+    let mut textual = single_candidate();
+    textual.provider_key = "textual".into();
+    textual.title = "Textual alternative".into();
+    textual.release_group_id = Some("textual-group".into());
+    textual.tracks[0].recording_id = Some("different-recording".into());
+    let mut second_textual = textual.clone();
+    second_textual.provider_key = "second-textual".into();
+    second_textual.title = "Second textual alternative".into();
+    second_textual.release_group_id = Some("second-textual-group".into());
+    second_textual.tracks[0].recording_id = Some("another-recording".into());
+    let mut fingerprinter = FakeFingerprinter { calls: 0 };
+    let mut acoustid = FakeAcoustId { score: 0.95 };
+
+    let result = run_with_identification(
+        &mut interaction,
+        &minimally_tagged_track(),
+        false,
+        GuidedProviders::new(
+            FakeMetadata {
+                results: VecDeque::from([
+                    vec![textual.clone(), second_textual.clone()],
+                    vec![single_candidate()],
+                    vec![textual, second_textual],
+                    vec![single_candidate()],
+                ]),
+            },
+            NoArtwork,
+            &mut fingerprinter,
+            &mut acoustid,
+        ),
+        cache,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    assert!(
+        result
+            .candidates
+            .iter()
+            .any(|candidate| candidate.candidate.provider_key == "textual"),
+        "candidate keys: {:?}\n{}",
+        result
+            .candidates
+            .iter()
+            .map(|candidate| &candidate.candidate.provider_key)
+            .collect::<Vec<_>>(),
+        interaction.transcript,
+    );
+    assert!(
+        result
+            .candidates
+            .iter()
+            .any(|candidate| candidate.candidate.provider_key == "single")
+    );
+}
+
+#[test]
+fn refreshed_ambiguity_warning_is_part_of_the_current_preview() {
+    let temporary = TempDir::new().unwrap();
+    let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+    let mut interaction = ScriptedInteraction {
+        answers: VecDeque::from(["f".into(), "y".into(), "d".into()]),
+        transcript: String::new(),
+    };
+    let mut selected = single_candidate();
+    selected.tracks[0].recording_id = Some("recording-1".into());
+    let mut fingerprinter = FakeFingerprinter { calls: 0 };
+    let mut acoustid = QueuedAcoustId {
+        responses: VecDeque::from([
+            acoustid_response(&["recording-1"]),
+            acoustid_response(&[
+                "recording-1",
+                "recording-2",
+                "recording-3",
+                "recording-4",
+                "recording-5",
+                "recording-6",
+            ]),
+        ]),
+    };
+
+    let result = run_with_identification(
+        &mut interaction,
+        &poorly_tagged_track(),
+        false,
+        GuidedProviders::new(
+            FakeMetadata {
+                results: VecDeque::from([
+                    Vec::new(),
+                    vec![selected.clone()],
+                    Vec::new(),
+                    vec![selected],
+                ]),
+            },
+            NoArtwork,
+            &mut fingerprinter,
+            &mut acoustid,
+        ),
+        cache,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("more than five qualifying"))
+    );
+}
+
+#[test]
+fn accepted_artwork_refresh_removes_the_no_artwork_warning() {
+    let temporary = TempDir::new().unwrap();
+    let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+    let mut interaction = ScriptedInteraction {
+        answers: VecDeque::from(["f".into(), "y".into(), "d".into()]),
+        transcript: String::new(),
+    };
+
+    let result = run(
+        &mut interaction,
+        &source(),
+        false,
+        FakeMetadata {
+            results: VecDeque::from([vec![candidate("Album")], vec![candidate("Album")]]),
+        },
+        QueuedArtwork {
+            calls: Rc::new(Cell::new(0)),
+            results: VecDeque::from([None, Some(provider_artwork((640, 640)))]),
+        },
+        cache,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    assert!(matches!(
+        result.artwork,
+        ArtworkSelection::CoverArtArchive(_)
+    ));
+    assert!(
+        result
+            .warnings
+            .iter()
+            .all(|warning| warning != "No album artwork is available")
+    );
+}
+
+#[test]
+fn accepted_successful_refresh_replaces_an_old_provider_failure_warning() {
+    let temporary = TempDir::new().unwrap();
+    let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+    let mut interaction = ScriptedInteraction {
+        answers: VecDeque::from(["".into(), "f".into(), "y".into(), "d".into()]),
+        transcript: String::new(),
+    };
+
+    let result = run(
+        &mut interaction,
+        &source(),
+        false,
+        ScriptedMetadata {
+            results: VecDeque::from([
+                Err(ProviderError::Network("initial outage".into())),
+                Ok(provider_result(vec![candidate("Album")], Vec::new())),
+            ]),
+        },
+        NoArtwork,
+        cache,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    assert!(
+        result
+            .warnings
+            .iter()
+            .all(|warning| !warning.contains("initial outage"))
+    );
+}
+
+#[test]
+fn failed_refresh_that_keeps_cached_metadata_keeps_its_fallback_warning() {
+    let temporary = TempDir::new().unwrap();
+    let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+    let mut interaction = ScriptedInteraction {
+        answers: VecDeque::from(["f".into(), "d".into()]),
+        transcript: String::new(),
+    };
+
+    let result = run(
+        &mut interaction,
+        &source(),
+        false,
+        ScriptedMetadata {
+            results: VecDeque::from([
+                Ok(provider_result(vec![candidate("Album")], Vec::new())),
+                Err(ProviderError::Network("refresh outage".into())),
+            ]),
+        },
+        NoArtwork,
+        cache,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("refresh outage") && warning.contains("cached data"))
+    );
+}
+
+#[test]
+fn declined_metadata_refresh_keeps_warnings_for_the_retained_preview() {
+    let temporary = TempDir::new().unwrap();
+    let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+    let mut interaction = ScriptedInteraction {
+        answers: VecDeque::from(["f".into(), "1".into(), "".into(), "d".into()]),
+        transcript: String::new(),
+    };
+
+    let result = run(
+        &mut interaction,
+        &source(),
+        false,
+        ScriptedMetadata {
+            results: VecDeque::from([
+                Ok(provider_result(
+                    vec![candidate("Album")],
+                    vec!["initial metadata warning".into()],
+                )),
+                Ok(provider_result(
+                    vec![candidate("Different Album")],
+                    vec!["refreshed metadata warning".into()],
+                )),
+            ]),
+        },
+        NoArtwork,
+        cache,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    assert!(result.warnings.contains(&"initial metadata warning".into()));
+    assert!(
+        !result
+            .warnings
+            .contains(&"refreshed metadata warning".into())
+    );
+}
+
 fn provider_artwork(dimensions: (u32, u32)) -> crate::provider::ProviderArtwork {
     crate::provider::ProviderArtwork {
         bytes: vec![dimensions.0 as u8, dimensions.1 as u8],
         format: crate::source::ArtworkFormat::Jpeg,
         dimensions,
+    }
+}
+
+fn provider_result(
+    candidates: Vec<CandidateRelease>,
+    warnings: Vec<String>,
+) -> ProviderSearchResult {
+    ProviderSearchResult {
+        candidates,
+        warnings,
+    }
+}
+
+fn test_fingerprint() -> AudioFingerprint {
+    AudioFingerprint {
+        duration_seconds: 180,
+        value: "fingerprint".into(),
+    }
+}
+
+fn acoustid_response(recording_ids: &[&str]) -> AcoustIdResponse {
+    AcoustIdResponse {
+        results: vec![AcoustIdResult {
+            id: "acoustid-result".into(),
+            score: 0.95,
+            recording_ids: recording_ids.iter().map(|id| (*id).into()).collect(),
+        }],
     }
 }
 
@@ -682,6 +1064,13 @@ fn poorly_tagged_track() -> SourceInspection {
         selected_artwork: None,
         notices: Vec::new(),
     }
+}
+
+fn minimally_tagged_track() -> SourceInspection {
+    let mut source = poorly_tagged_track();
+    source.audio[0].tags.title = Some("Identified Song".into());
+    source.audio[0].tags.artist = Some("Identified Artist".into());
+    source
 }
 
 fn single_candidate() -> CandidateRelease {

@@ -46,12 +46,6 @@ impl RankedCandidate {
             && self.meaningful_track_evidence
             && !self.identifier_conflict
     }
-
-    pub fn add_reason(&mut self, summary: impl Into<String>) {
-        self.reasons.push(MatchReason {
-            summary: summary.into(),
-        });
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

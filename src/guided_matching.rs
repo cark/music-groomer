@@ -3,18 +3,28 @@ use std::time::SystemTime;
 
 use crate::artwork_viewer::ArtworkViewer;
 use crate::fingerprint::{AudioFingerprinter, FingerprintError, FingerprintProgress};
-use crate::identification::{FingerprintEvidence, needs_fingerprint};
-use crate::matching::MatchPolicy;
+use crate::identification::FingerprintEvidence;
 use crate::matching::RankedCandidate;
 use crate::matching_ui::{MetadataSelection, choose, revise};
 use crate::provider::{
-    AcoustIdLookupOrigin, AcoustIdProvider, AcoustIdResolver, ArtworkLookup, ArtworkProvider,
-    ArtworkResolver, LookupOrigin, MetadataProvider, MetadataResolver, ProviderCache,
-    ProviderError, ProviderEvent, ProviderProgress, WaitReason, collapse_equivalent,
-    equivalent_groomed_result, source_inspection,
+    AcoustIdLookupOrigin, AcoustIdProvider, ArtworkProvider, ArtworkResolver, LookupOrigin,
+    MetadataProvider, MetadataResolver, ProviderCache, ProviderError, ProviderEvent,
+    ProviderProgress, WaitReason, equivalent_groomed_result, source_inspection,
 };
 use crate::source::SourceInspection;
 use crate::terminal::{Interaction, SemanticRole, UiLine};
+
+mod artwork;
+mod identification;
+mod warnings;
+
+pub use artwork::ArtworkSelection;
+use artwork::{
+    artwork_label, choose_artwork, confirm_refreshed_artwork, fetch_artwork, initial_artwork,
+    set_artwork_warnings, show_artwork_change,
+};
+use identification::{IdentificationAdapters, identify};
+use warnings::{WarningState, selection_year_warnings};
 
 pub struct GuidedMatchResult {
     pub metadata: MetadataSelection,
@@ -32,13 +42,6 @@ pub enum MetadataProvenance {
     MusicBrainzWithFingerprint,
     MusicBrainzWithFingerprintAndSourceYear(u16),
     ExistingTags { artwork_via_source_id: bool },
-    None,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ArtworkSelection {
-    Source,
-    CoverArtArchive(crate::provider::ProviderArtwork),
     None,
 }
 
@@ -120,11 +123,6 @@ pub fn run_with_identification<
     )
 }
 
-struct IdentificationAdapters<'a> {
-    fingerprinter: &'a mut dyn AudioFingerprinter,
-    acoustid_provider: &'a mut dyn AcoustIdProvider,
-}
-
 struct RunProviders<'a, M, A> {
     metadata: M,
     artwork: A,
@@ -159,95 +157,23 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
     };
     show_lookup_origin(interaction, lookup.origin)?;
     show_warnings(interaction, &lookup.warnings)?;
-    let mut warnings = source_warnings(source);
-    warnings.extend(identifier_warnings(&inspection));
-    warnings.extend(lookup.warnings);
-    deduplicate(&mut warnings);
-    let mut provider_candidates = lookup.candidates;
-    let mut decision = MatchPolicy::default().decide(&inspection, provider_candidates.clone());
-    let mut identification = None;
-    if needs_fingerprint(source, &inspection, &decision)
-        && let Some(adapters) = identification_adapters.as_mut()
-    {
-        let audio_path = selected_audio_path(source);
-        let fingerprint = {
-            let mut progress = InteractionProgress(interaction);
-            adapters.fingerprinter.calculate(&audio_path, &mut progress)
-        };
-        match fingerprint {
-            Ok(fingerprint) => {
-                interaction.prose(
-                    "  AcoustID receives this compact fingerprint and duration, not the audio file.",
-                )?;
-                let acoustid_lookup = {
-                    let mut resolver =
-                        AcoustIdResolver::new(&mut *adapters.acoustid_provider, cache.clone());
-                    let mut progress = InteractionProgress(interaction);
-                    resolver.lookup(
-                        &fingerprint,
-                        offline,
-                        false,
-                        SystemTime::now(),
-                        &mut progress,
-                    )
-                };
-                show_acoustid_origin(interaction, acoustid_lookup.origin)?;
-                show_warnings(interaction, &acoustid_lookup.warnings)?;
-                warnings.extend(acoustid_lookup.warnings);
-                if let Some(response) = acoustid_lookup.response {
-                    let evidence = FingerprintEvidence::from_response(
-                        response,
-                        &inspection,
-                        fingerprint.duration_seconds,
-                    );
-                    show_identification_summary(interaction, &evidence)?;
-                    if evidence.unusually_ambiguous {
-                        warnings.push(
-                            "Audio fingerprint produced more than five qualifying MusicBrainz recordings; only the five strongest were resolved"
-                                .into(),
-                        );
-                    }
-                    let recording_ids = evidence.recording_ids();
-                    if !recording_ids.is_empty() {
-                        let mut recording_search = search.clone();
-                        recording_search.kind = crate::domain::SourceKind::LooseFile;
-                        recording_search.release_group_id = None;
-                        recording_search.recording_ids = recording_ids.clone();
-                        let resolved = {
-                            let mut progress = InteractionProgress(interaction);
-                            metadata_resolver.lookup(
-                                &recording_search,
-                                offline,
-                                false,
-                                SystemTime::now(),
-                                &mut progress,
-                            )
-                        };
-                        show_lookup_origin(interaction, resolved.origin)?;
-                        show_warnings(interaction, &resolved.warnings)?;
-                        warnings.extend(resolved.warnings);
-                        provider_candidates.extend(resolved.candidates);
-                        provider_candidates = collapse_equivalent(provider_candidates);
-                        decision = MatchPolicy::default().decide_with_fingerprint(
-                            &inspection,
-                            provider_candidates.clone(),
-                            &recording_ids,
-                            evidence.automatic_recording_id.is_some(),
-                        );
-                    }
-                    identification = Some(evidence);
-                }
-            }
-            Err(error) => {
-                let warning = format!(
-                    "Audio fingerprint identification is unavailable ({error}); keeping provider and source metadata"
-                );
-                interaction.warning(format!("Warning: {warning}"))?;
-                warnings.push(warning);
-            }
-        }
-        deduplicate(&mut warnings);
-    }
+    let mut warning_state = WarningState::new(source, &inspection);
+    warning_state.set_metadata(lookup.warnings);
+    let identified = identify(
+        interaction,
+        source,
+        &inspection,
+        &search,
+        lookup.candidates,
+        &mut metadata_resolver,
+        &cache,
+        identification_adapters.as_mut(),
+        offline,
+        false,
+    )?;
+    warning_state.set_identification(identified.warnings);
+    let mut identification = identified.evidence;
+    let decision = identified.decision;
     let mut candidates = decision.candidates().to_vec();
     let mut metadata = choose(interaction, &inspection, decision)?;
     if metadata == MetadataSelection::Cancelled {
@@ -257,30 +183,34 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
             candidates,
             artwork: ArtworkSelection::None,
             identification,
-            warnings,
+            warnings: warning_state.current(),
         });
     }
-    let mut source_year_fallback = add_year_fallback(&inspection, &mut metadata, &mut warnings);
+    let (mut source_year_fallback, selection_warnings) =
+        selection_year_warnings(&inspection, &mut metadata);
+    warning_state.set_selection(selection_warnings);
 
     let mut artwork_resolver = ArtworkResolver::new(artwork, cache.clone());
-    let mut archive_artwork = fetch_artwork(
+    let fetched_artwork = fetch_artwork(
         interaction,
         &mut artwork_resolver,
         &inspection,
         &metadata,
         offline,
         false,
-        &mut warnings,
     )?;
+    let mut archive_artwork = fetched_artwork.artwork;
     let mut artwork = initial_artwork(source, &metadata, archive_artwork.as_ref());
-    warn_if_no_artwork(
+    set_artwork_warnings(
         interaction,
+        &mut warning_state,
+        fetched_artwork.warnings,
         &artwork,
         archive_artwork.as_ref(),
-        &mut warnings,
     )?;
 
     loop {
+        let warnings = warning_state.current();
         show_preview(
             interaction,
             source,
@@ -312,23 +242,26 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
                     identification.as_ref(),
                 )?;
                 if changed {
-                    source_year_fallback =
-                        add_year_fallback(&inspection, &mut metadata, &mut warnings);
-                    archive_artwork = fetch_artwork(
+                    let (fallback, selection_warnings) =
+                        selection_year_warnings(&inspection, &mut metadata);
+                    source_year_fallback = fallback;
+                    warning_state.set_selection(selection_warnings);
+                    let fetched = fetch_artwork(
                         interaction,
                         &mut artwork_resolver,
                         &inspection,
                         &metadata,
                         offline,
                         false,
-                        &mut warnings,
                     )?;
+                    archive_artwork = fetched.artwork;
                     artwork = initial_artwork(source, &metadata, archive_artwork.as_ref());
-                    warn_if_no_artwork(
+                    set_artwork_warnings(
                         interaction,
+                        &mut warning_state,
+                        fetched.warnings,
                         &artwork,
                         archive_artwork.as_ref(),
-                        &mut warnings,
                     )?;
                 }
             }
@@ -343,65 +276,52 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
             }
             "f" | "refresh" if !offline => {
                 interaction.section_heading("Refreshing provider data and artwork")?;
-                let refreshed_decision = if identification.is_some() {
-                    if let Some(adapters) = identification_adapters.as_mut() {
-                        refresh_fingerprint_identification(
-                            interaction,
-                            source,
-                            &mut metadata_resolver,
-                            &cache,
-                            adapters,
-                            &mut warnings,
-                        )?
-                        .and_then(|refreshed| {
-                            identification = Some(refreshed.evidence);
-                            refreshed.decision
-                        })
-                    } else {
-                        None
-                    }
-                } else {
-                    let refreshed = {
-                        let mut progress = InteractionProgress(interaction);
-                        metadata_resolver.lookup(
-                            &search,
-                            false,
-                            true,
-                            SystemTime::now(),
-                            &mut progress,
-                        )
-                    };
-                    show_lookup_origin(interaction, refreshed.origin)?;
-                    show_warnings(interaction, &refreshed.warnings)?;
-                    warnings.extend(refreshed.warnings);
-                    Some(MatchPolicy::default().decide(&inspection, refreshed.candidates))
+                let refreshed = {
+                    let mut progress = InteractionProgress(interaction);
+                    metadata_resolver.lookup(&search, false, true, SystemTime::now(), &mut progress)
                 };
-                deduplicate(&mut warnings);
-                let metadata_replaced = if let Some(refreshed_decision) = refreshed_decision {
-                    candidates = refreshed_decision.candidates().to_vec();
-                    let refreshed_selection = choose(interaction, &inspection, refreshed_decision)?;
-                    if refreshed_selection == MetadataSelection::Cancelled {
-                        interaction.prose("Current preview kept unchanged.")?;
-                        false
-                    } else if same_result(&metadata, &refreshed_selection) {
-                        interaction
-                            .success("Provider data is current; the preview did not change.")?;
-                        metadata = refreshed_selection;
-                        true
-                    } else if confirm_refreshed(interaction)? {
-                        metadata = refreshed_selection;
-                        true
-                    } else {
-                        interaction.prose("Current preview kept unchanged.")?;
-                        false
-                    }
+                show_lookup_origin(interaction, refreshed.origin)?;
+                show_warnings(interaction, &refreshed.warnings)?;
+                let mut refreshed_warning_state = warning_state.clone();
+                refreshed_warning_state.set_metadata(refreshed.warnings);
+                let identified = identify(
+                    interaction,
+                    source,
+                    &inspection,
+                    &search,
+                    refreshed.candidates,
+                    &mut metadata_resolver,
+                    &cache,
+                    identification_adapters.as_mut(),
+                    false,
+                    true,
+                )?;
+                refreshed_warning_state.set_identification(identified.warnings);
+                let refreshed_candidates = identified.decision.candidates().to_vec();
+                let refreshed_selection = choose(interaction, &inspection, identified.decision)?;
+                let metadata_replaced = if refreshed_selection == MetadataSelection::Cancelled {
+                    interaction.prose("Current preview kept unchanged.")?;
+                    false
+                } else if same_result(&metadata, &refreshed_selection) {
+                    interaction.success("Provider data is current; the preview did not change.")?;
+                    true
+                } else if confirm_refreshed(interaction)? {
+                    true
                 } else {
                     interaction.prose("Current preview kept unchanged.")?;
                     false
                 };
                 if metadata_replaced {
-                    source_year_fallback =
-                        add_year_fallback(&inspection, &mut metadata, &mut warnings);
+                    metadata = refreshed_selection;
+                    candidates = refreshed_candidates;
+                    if identified.evidence_replaced {
+                        identification = identified.evidence;
+                    }
+                    let (fallback, selection_warnings) =
+                        selection_year_warnings(&inspection, &mut metadata);
+                    source_year_fallback = fallback;
+                    refreshed_warning_state.set_selection(selection_warnings);
+                    warning_state = refreshed_warning_state;
                 }
                 let refreshed_artwork = fetch_artwork(
                     interaction,
@@ -410,33 +330,40 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
                     &metadata,
                     false,
                     true,
-                    &mut warnings,
                 )?;
-                if archive_artwork != refreshed_artwork {
+                if archive_artwork != refreshed_artwork.artwork {
                     show_artwork_change(
                         interaction,
                         archive_artwork.as_ref(),
-                        refreshed_artwork.as_ref(),
+                        refreshed_artwork.artwork.as_ref(),
                     )?;
                     if confirm_refreshed_artwork(interaction)? {
-                        archive_artwork = refreshed_artwork;
+                        archive_artwork = refreshed_artwork.artwork;
                         if matches!(artwork, ArtworkSelection::CoverArtArchive(_))
                             || source.selected_artwork.is_none()
                         {
                             artwork = initial_artwork(source, &metadata, archive_artwork.as_ref());
                         }
+                        set_artwork_warnings(
+                            interaction,
+                            &mut warning_state,
+                            refreshed_artwork.warnings,
+                            &artwork,
+                            archive_artwork.as_ref(),
+                        )?;
                     } else {
                         interaction.prose("Current artwork choice kept unchanged.")?;
                     }
                 } else {
                     interaction.success("Cover Art Archive artwork is current.")?;
+                    set_artwork_warnings(
+                        interaction,
+                        &mut warning_state,
+                        refreshed_artwork.warnings,
+                        &artwork,
+                        archive_artwork.as_ref(),
+                    )?;
                 }
-                warn_if_no_artwork(
-                    interaction,
-                    &artwork,
-                    archive_artwork.as_ref(),
-                    &mut warnings,
-                )?;
             }
             "" => {}
             "d" | "done" | "q" | "quit" => break,
@@ -471,198 +398,8 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
         candidates,
         artwork,
         identification,
-        warnings,
+        warnings: warning_state.current(),
     })
-}
-
-struct RefreshedIdentification {
-    evidence: FingerprintEvidence,
-    decision: Option<crate::matching::MatchDecision>,
-}
-
-fn refresh_fingerprint_identification<M: MetadataProvider>(
-    interaction: &mut impl Interaction,
-    source: &SourceInspection,
-    metadata_resolver: &mut MetadataResolver<M>,
-    cache: &ProviderCache,
-    adapters: &mut IdentificationAdapters<'_>,
-    warnings: &mut Vec<String>,
-) -> io::Result<Option<RefreshedIdentification>> {
-    let (inspection, search) = source_inspection(source);
-    let fingerprint = {
-        let mut progress = InteractionProgress(interaction);
-        adapters
-            .fingerprinter
-            .calculate(&selected_audio_path(source), &mut progress)
-    };
-    let fingerprint = match fingerprint {
-        Ok(fingerprint) => fingerprint,
-        Err(error) => {
-            let warning = format!(
-                "Audio fingerprint refresh failed ({error}); keeping the current identification"
-            );
-            interaction.warning(format!("Warning: {warning}"))?;
-            warnings.push(warning);
-            return Ok(None);
-        }
-    };
-    interaction
-        .prose("  AcoustID receives this compact fingerprint and duration, not the audio file.")?;
-    let lookup = {
-        let mut resolver = AcoustIdResolver::new(&mut *adapters.acoustid_provider, cache.clone());
-        let mut progress = InteractionProgress(interaction);
-        resolver.lookup(&fingerprint, false, true, SystemTime::now(), &mut progress)
-    };
-    show_acoustid_origin(interaction, lookup.origin)?;
-    show_warnings(interaction, &lookup.warnings)?;
-    warnings.extend(lookup.warnings);
-    let Some(response) = lookup.response else {
-        return Ok(None);
-    };
-    let evidence =
-        FingerprintEvidence::from_response(response, &inspection, fingerprint.duration_seconds);
-    show_identification_summary(interaction, &evidence)?;
-    let recording_ids = evidence.recording_ids();
-    if recording_ids.is_empty() {
-        return Ok(Some(RefreshedIdentification {
-            evidence,
-            decision: None,
-        }));
-    }
-    let mut recording_search = search;
-    recording_search.kind = crate::domain::SourceKind::LooseFile;
-    recording_search.release_group_id = None;
-    recording_search.recording_ids = recording_ids.clone();
-    let resolved = {
-        let mut progress = InteractionProgress(interaction);
-        metadata_resolver.lookup(
-            &recording_search,
-            false,
-            true,
-            SystemTime::now(),
-            &mut progress,
-        )
-    };
-    show_lookup_origin(interaction, resolved.origin)?;
-    show_warnings(interaction, &resolved.warnings)?;
-    warnings.extend(resolved.warnings);
-    let candidates = collapse_equivalent(resolved.candidates);
-    let decision = MatchPolicy::default().decide_with_fingerprint(
-        &inspection,
-        candidates,
-        &recording_ids,
-        evidence.automatic_recording_id.is_some(),
-    );
-    Ok(Some(RefreshedIdentification {
-        evidence,
-        decision: Some(decision),
-    }))
-}
-
-fn add_year_fallback(
-    inspection: &crate::domain::Inspection,
-    metadata: &mut MetadataSelection,
-    warnings: &mut Vec<String>,
-) -> Option<u16> {
-    let source_year = inspection.tracks.first().and_then(|track| {
-        let year = track.original_year?;
-        inspection
-            .tracks
-            .iter()
-            .all(|track| track.original_year == Some(year))
-            .then_some(year)
-    });
-    let MetadataSelection::Provider(selected) = metadata else {
-        return None;
-    };
-    if selected.candidate.original_year.is_none() {
-        if let Some(year) = source_year {
-            selected.candidate.original_year = Some(year);
-            warnings.push(format!(
-                "Selected MusicBrainz metadata has no original year; source year {year} is used as an unverified fallback"
-            ));
-            deduplicate(warnings);
-            return Some(year);
-        } else {
-            warnings.push(
-                "MusicBrainz and the source do not provide an original year; it will remain absent"
-                    .into(),
-            );
-        }
-    }
-    deduplicate(warnings);
-    None
-}
-
-fn fetch_artwork<A: ArtworkProvider>(
-    interaction: &mut impl Interaction,
-    resolver: &mut ArtworkResolver<A>,
-    inspection: &crate::domain::Inspection,
-    metadata: &MetadataSelection,
-    offline: bool,
-    force_refresh: bool,
-    warnings: &mut Vec<String>,
-) -> io::Result<Option<crate::provider::ProviderArtwork>> {
-    let group = match metadata {
-        MetadataSelection::Provider(selected) => selected.candidate.release_group_id.as_deref(),
-        MetadataSelection::ExistingTags => common_release_group_id(inspection),
-        MetadataSelection::Cancelled => None,
-    };
-    let Some(group) = group else {
-        warnings.push("Selected metadata has no release-group artwork identity".into());
-        return Ok(None);
-    };
-    interaction.section_heading("Checking album artwork")?;
-    let lookup = {
-        let mut progress = InteractionProgress(interaction);
-        resolver.lookup(
-            group,
-            offline,
-            force_refresh,
-            SystemTime::now(),
-            &mut progress,
-        )
-    };
-    show_artwork_origin(interaction, &lookup)?;
-    show_warnings(interaction, &lookup.warnings)?;
-    warnings.extend(lookup.warnings);
-    deduplicate(warnings);
-    Ok(lookup.artwork)
-}
-
-fn warn_if_no_artwork(
-    interaction: &mut impl Interaction,
-    artwork: &ArtworkSelection,
-    archive: Option<&crate::provider::ProviderArtwork>,
-    warnings: &mut Vec<String>,
-) -> io::Result<()> {
-    if artwork == &ArtworkSelection::None
-        && archive.is_none()
-        && !warnings
-            .iter()
-            .any(|warning| warning == "No album artwork is available")
-    {
-        let warning = "No album artwork is available".to_owned();
-        show_warnings(interaction, std::slice::from_ref(&warning))?;
-        warnings.push(warning);
-    }
-    Ok(())
-}
-
-fn initial_artwork(
-    source: &SourceInspection,
-    metadata: &MetadataSelection,
-    archive: Option<&crate::provider::ProviderArtwork>,
-) -> ArtworkSelection {
-    if source.selected_artwork.is_some() {
-        ArtworkSelection::Source
-    } else if let Some(artwork) = archive
-        && matches!(metadata, MetadataSelection::Provider(_))
-    {
-        ArtworkSelection::CoverArtArchive(artwork.clone())
-    } else {
-        ArtworkSelection::None
-    }
 }
 
 fn show_preview(
@@ -701,13 +438,21 @@ fn show_preview(
         MetadataSelection::Cancelled => {}
     }
     interaction.field("Artwork", artwork_label(source, artwork))?;
-    if archive.is_some() && !matches!(artwork, ArtworkSelection::CoverArtArchive(_)) {
+    if let Some(archive) = archive
+        && !matches!(artwork, ArtworkSelection::CoverArtArchive(_))
+    {
         interaction.present(
             UiLine::new()
                 .with(SemanticRole::Prose, "  ")
                 .with(SemanticRole::FieldName, "Artwork alternative")
                 .with(SemanticRole::Prose, ": ")
-                .with(SemanticRole::Alternative, "Cover Art Archive 1200px front"),
+                .with(
+                    SemanticRole::Alternative,
+                    format!(
+                        "Cover Art Archive front ({} {}x{})",
+                        archive.format, archive.dimensions.0, archive.dimensions.1
+                    ),
+                ),
         )?;
     }
     if warnings.is_empty() {
@@ -716,106 +461,6 @@ fn show_preview(
         interaction.field("Warnings", format!("{} (shown above)", warnings.len()))?;
     }
     interaction.prose("  No files were changed. Apply arrives in milestone 4.")
-}
-
-fn artwork_label(source: &SourceInspection, artwork: &ArtworkSelection) -> String {
-    match artwork {
-        ArtworkSelection::Source => source
-            .selected_artwork
-            .and_then(|index| source.artwork.get(index))
-            .map_or_else(
-                || "selected source cover".to_owned(),
-                |artwork| format!("source {}", artwork.relative_path.display()),
-            ),
-        ArtworkSelection::CoverArtArchive(artwork) => format!(
-            "Cover Art Archive front ({} {}x{})",
-            artwork.format, artwork.dimensions.0, artwork.dimensions.1
-        ),
-        ArtworkSelection::None => "none available".into(),
-    }
-}
-
-fn choose_artwork<V: ArtworkViewer>(
-    interaction: &mut impl Interaction,
-    source: &SourceInspection,
-    archive: Option<&crate::provider::ProviderArtwork>,
-    current: ArtworkSelection,
-    viewer: &mut V,
-) -> io::Result<ArtworkSelection> {
-    match (source.selected_artwork.is_some(), archive) {
-        (true, Some(archive)) => loop {
-            let answer = interaction.prompt(UiLine::menu_prompt(
-                "Artwork: [1] Keep source cover (default)  [2] Use Cover Art Archive front  [v] View current  [b] Back: ",
-            ))?;
-            match answer.to_ascii_lowercase().as_str() {
-                "1" => return Ok(ArtworkSelection::Source),
-                "2" => return Ok(ArtworkSelection::CoverArtArchive(archive.clone())),
-                "v" | "view" => view_artwork(interaction, source, &current, viewer)?,
-                "" | "b" | "back" => return Ok(current),
-                _ => interaction.error("Please choose Source, Cover Art Archive, or Back.")?,
-            }
-        },
-        (true, None) => {
-            view_artwork(interaction, source, &current, viewer)?;
-            Ok(current)
-        }
-        (false, Some(archive)) => loop {
-            let answer = interaction.prompt(UiLine::menu_prompt(
-                "Artwork: [2] Use Cover Art Archive front  [v] View archive front  [b] Back: ",
-            ))?;
-            match answer.to_ascii_lowercase().as_str() {
-                "2" => return Ok(ArtworkSelection::CoverArtArchive(archive.clone())),
-                "v" | "view" => view_artwork(
-                    interaction,
-                    source,
-                    &ArtworkSelection::CoverArtArchive(archive.clone()),
-                    viewer,
-                )?,
-                "" | "b" | "back" => return Ok(current),
-                _ => interaction.error("Please choose Use, View, or Back.")?,
-            }
-        },
-        (false, None) => {
-            interaction.warning("No album artwork is available.")?;
-            Ok(current)
-        }
-    }
-}
-
-fn view_artwork<V: ArtworkViewer>(
-    interaction: &mut impl Interaction,
-    source: &SourceInspection,
-    artwork: &ArtworkSelection,
-    viewer: &mut V,
-) -> io::Result<()> {
-    let result = match artwork {
-        ArtworkSelection::Source => source
-            .selected_artwork
-            .and_then(|index| source.artwork.get(index))
-            .ok_or_else(|| "the selected source cover is unavailable".to_owned())
-            .and_then(|artwork| {
-                let root = if source.source.is_dir() {
-                    source.source.clone()
-                } else {
-                    source
-                        .source
-                        .parent()
-                        .unwrap_or_else(|| std::path::Path::new("."))
-                        .to_owned()
-                };
-                viewer
-                    .view_path(&root.join(&artwork.relative_path))
-                    .map_err(|error| error.to_string())
-            }),
-        ArtworkSelection::CoverArtArchive(artwork) => viewer
-            .view_download(artwork)
-            .map_err(|error| error.to_string()),
-        ArtworkSelection::None => Err("no artwork is available to view".into()),
-    };
-    match result {
-        Ok(()) => interaction.success("Opened the selected artwork in the system image viewer."),
-        Err(error) => interaction.error(format!("Could not view artwork: {error}")),
-    }
 }
 
 fn review(
@@ -931,52 +576,6 @@ fn selection_key(metadata: &MetadataSelection) -> Option<&str> {
     }
 }
 
-fn source_warnings(source: &SourceInspection) -> Vec<String> {
-    source
-        .notices
-        .iter()
-        .filter(|notice| notice.severity == crate::source::NoticeSeverity::Warning)
-        .map(|notice| match &notice.path {
-            Some(path) => format!("{}: {}", path.display(), notice.message),
-            None => notice.message.clone(),
-        })
-        .collect()
-}
-
-fn identifier_warnings(inspection: &crate::domain::Inspection) -> Vec<String> {
-    let mut warnings = Vec::new();
-    let release_group_count = inspection
-        .tracks
-        .iter()
-        .filter(|track| track.release_group_id.is_some())
-        .count();
-    let release_groups = inspection
-        .tracks
-        .iter()
-        .filter_map(|track| track.release_group_id.as_deref())
-        .collect::<std::collections::BTreeSet<_>>();
-    if release_groups.len() > 1
-        || (release_group_count > 0 && release_group_count != inspection.tracks.len())
-    {
-        warnings.push(
-            "Source MusicBrainz release-group identifiers are inconsistent; using textual discovery instead"
-                .into(),
-        );
-    }
-    let album_artist_ids = inspection
-        .tracks
-        .iter()
-        .map(|track| track.album_artist_ids.as_slice())
-        .collect::<std::collections::BTreeSet<_>>();
-    if album_artist_ids.len() > 1 {
-        warnings.push(
-            "Source MusicBrainz album-artist identifiers are inconsistent; using artist names instead"
-                .into(),
-        );
-    }
-    warnings
-}
-
 fn common_release_group_id(inspection: &crate::domain::Inspection) -> Option<&str> {
     let first = inspection.tracks.first()?.release_group_id.as_deref()?;
     inspection
@@ -984,46 +583,6 @@ fn common_release_group_id(inspection: &crate::domain::Inspection) -> Option<&st
         .iter()
         .all(|track| track.release_group_id.as_deref() == Some(first))
         .then_some(first)
-}
-
-fn deduplicate(warnings: &mut Vec<String>) {
-    let mut seen = std::collections::BTreeSet::new();
-    warnings.retain(|warning| seen.insert(warning.clone()));
-}
-
-fn show_artwork_change(
-    interaction: &mut impl Interaction,
-    previous: Option<&crate::provider::ProviderArtwork>,
-    refreshed: Option<&crate::provider::ProviderArtwork>,
-) -> io::Result<()> {
-    interaction.heading("Cover Art Archive artwork changed")?;
-    interaction.field("Previous", provider_artwork_label(previous))?;
-    interaction.field("Refreshed", provider_artwork_label(refreshed))
-}
-
-fn provider_artwork_label(artwork: Option<&crate::provider::ProviderArtwork>) -> String {
-    artwork.map_or_else(
-        || "none".into(),
-        |artwork| {
-            format!(
-                "{} {}x{}",
-                artwork.format, artwork.dimensions.0, artwork.dimensions.1
-            )
-        },
-    )
-}
-
-fn confirm_refreshed_artwork(interaction: &mut impl Interaction) -> io::Result<bool> {
-    loop {
-        let answer = interaction.prompt(UiLine::menu_prompt(
-            "Use the refreshed archive artwork? [y/N]: ",
-        ))?;
-        match answer.to_ascii_lowercase().as_str() {
-            "y" | "yes" => return Ok(true),
-            "" | "n" | "no" => return Ok(false),
-            _ => interaction.error("Please answer Yes or No.")?,
-        }
-    }
 }
 
 fn same_result(left: &MetadataSelection, right: &MetadataSelection) -> bool {
@@ -1054,6 +613,7 @@ fn show_lookup_origin(interaction: &mut impl Interaction, origin: LookupOrigin) 
         LookupOrigin::Live => "MusicBrainz lookup completed.",
         LookupOrigin::Refreshed => "MusicBrainz data refreshed.",
         LookupOrigin::FreshCache => "Fresh metadata cache hit; MusicBrainz was not contacted.",
+        LookupOrigin::FreshFallback => "Using cached metadata after refresh failure.",
         LookupOrigin::StaleFallback => "Using stale cached metadata after refresh failure.",
         LookupOrigin::OfflineStaleCache => "Using stale cached metadata in offline mode.",
         LookupOrigin::OfflineMiss => "No cached metadata is available in offline mode.",
@@ -1074,6 +634,9 @@ fn show_acoustid_origin(
         AcoustIdLookupOrigin::Refreshed => "AcoustID identification refreshed.",
         AcoustIdLookupOrigin::FreshCache => {
             "Fresh identification cache hit; AcoustID was not contacted."
+        }
+        AcoustIdLookupOrigin::FreshFallback => {
+            "Using cached identification after AcoustID refresh failure."
         }
         AcoustIdLookupOrigin::StaleFallback => {
             "Using stale cached identification after AcoustID refresh failure."
@@ -1127,39 +690,6 @@ fn show_identification_details(
         }
     }
     Ok(())
-}
-
-fn selected_audio_path(source: &SourceInspection) -> std::path::PathBuf {
-    if source.kind == crate::domain::SourceKind::LooseFile {
-        source.source.clone()
-    } else {
-        source.source.join(
-            &source
-                .audio
-                .first()
-                .expect("identification requires one inspected audio file")
-                .relative_path,
-        )
-    }
-}
-
-fn show_artwork_origin(
-    interaction: &mut impl Interaction,
-    lookup: &ArtworkLookup,
-) -> io::Result<()> {
-    use crate::provider::ArtworkLookupOrigin;
-    let message = match lookup.origin {
-        ArtworkLookupOrigin::Live => "Cover Art Archive lookup completed.",
-        ArtworkLookupOrigin::Refreshed => "Cover Art Archive artwork refreshed.",
-        ArtworkLookupOrigin::Cache => "Artwork cache hit; Cover Art Archive was not contacted.",
-        ArtworkLookupOrigin::ConfirmedAbsentCache => {
-            "Artwork cache confirms Cover Art Archive has no front image; it was not contacted."
-        }
-        ArtworkLookupOrigin::CacheFallback => "Using cached artwork after refresh failure.",
-        ArtworkLookupOrigin::OfflineCache => "Using artwork cache in offline mode.",
-        ArtworkLookupOrigin::ProviderUnavailable => "Cover Art Archive artwork is unavailable.",
-    };
-    interaction.success(message)
 }
 
 fn show_warnings(interaction: &mut impl Interaction, warnings: &[String]) -> io::Result<()> {

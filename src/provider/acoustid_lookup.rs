@@ -105,12 +105,21 @@ impl<P: AcoustIdProvider> AcoustIdResolver<P> {
             }
             Err(error) => match cached {
                 Some(entry) => {
+                    let (origin, cache_description) = match entry.freshness {
+                        MetadataFreshness::Fresh => {
+                            (AcoustIdLookupOrigin::FreshFallback, "cached identification")
+                        }
+                        MetadataFreshness::Stale => (
+                            AcoustIdLookupOrigin::StaleFallback,
+                            "stale cached identification",
+                        ),
+                    };
                     warnings.push(format!(
-                        "AcoustID could not be refreshed ({error}); using stale cached identification"
+                        "AcoustID could not be refreshed ({error}); using {cache_description}"
                     ));
                     AcoustIdLookup {
                         response: Some(entry.response),
-                        origin: AcoustIdLookupOrigin::StaleFallback,
+                        origin,
                         warnings,
                     }
                 }
@@ -141,6 +150,7 @@ pub enum AcoustIdLookupOrigin {
     Live,
     Refreshed,
     FreshCache,
+    FreshFallback,
     StaleFallback,
     OfflineStaleCache,
     OfflineMiss,
@@ -270,6 +280,29 @@ mod tests {
         assert_eq!(result.origin, AcoustIdLookupOrigin::StaleFallback);
         assert!(result.response.is_some());
         assert!(result.warnings[0].contains("using stale cached identification"));
+    }
+
+    #[test]
+    fn failed_forced_refresh_describes_fresh_identification_accurately() {
+        let temporary = TempDir::new().unwrap();
+        let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+        cache
+            .store_acoustid(&fingerprint(), &match_response(), UNIX_EPOCH)
+            .unwrap();
+        let mut resolver = AcoustIdResolver::new(
+            FakeProvider {
+                calls: 0,
+                result: Err(ProviderError::Network("temporary outage".into())),
+            },
+            cache,
+        );
+
+        let result = resolver.lookup(&fingerprint(), false, true, UNIX_EPOCH, &mut ());
+
+        assert_eq!(result.origin, AcoustIdLookupOrigin::FreshFallback);
+        assert!(result.response.is_some());
+        assert!(result.warnings[0].contains("using cached identification"));
+        assert!(!result.warnings[0].contains("stale"));
     }
 
     fn fingerprint() -> AudioFingerprint {

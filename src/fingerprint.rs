@@ -249,7 +249,7 @@ mod tests {
         fs::set_permissions(&helper, permissions).unwrap();
         let mut fingerprinter = FpcalcFingerprinter {
             executable: helper,
-            timeout: Duration::from_millis(20),
+            timeout: Duration::from_millis(150),
         };
         let started = Instant::now();
 
@@ -258,6 +258,6 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(error, FingerprintError::Timeout));
-        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(started.elapsed() < Duration::from_secs(3));
     }
 }

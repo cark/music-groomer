@@ -111,12 +111,18 @@ impl<P: MetadataProvider> MetadataResolver<P> {
             },
             Err(error) => match cached {
                 Some(entry) => {
+                    let (origin, cache_description) = match entry.freshness {
+                        MetadataFreshness::Fresh => (LookupOrigin::FreshFallback, "cached data"),
+                        MetadataFreshness::Stale => {
+                            (LookupOrigin::StaleFallback, "stale cached data")
+                        }
+                    };
                     warnings.push(format!(
-                        "MusicBrainz could not be refreshed ({error}); using stale cached data"
+                        "MusicBrainz could not be refreshed ({error}); using {cache_description}"
                     ));
                     MetadataLookup {
                         candidates: entry.candidates,
-                        origin: LookupOrigin::StaleFallback,
+                        origin,
                         warnings,
                     }
                 }
@@ -147,6 +153,7 @@ pub enum LookupOrigin {
     Live,
     Refreshed,
     FreshCache,
+    FreshFallback,
     StaleFallback,
     OfflineStaleCache,
     OfflineMiss,
@@ -226,6 +233,27 @@ mod tests {
         assert_eq!(result.origin, LookupOrigin::StaleFallback);
         assert_eq!(result.candidates[0].provider_key, "stale");
         assert!(result.warnings[0].contains("using stale cached data"));
+    }
+
+    #[test]
+    fn failed_forced_refresh_describes_fresh_cache_accurately() {
+        let temporary = TempDir::new().unwrap();
+        let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+        cache
+            .store_metadata(&search(), &[candidate("fresh")], UNIX_EPOCH)
+            .unwrap();
+        let provider = FakeProvider {
+            calls: 0,
+            result: Err(ProviderError::Network("offline".into())),
+        };
+        let mut resolver = MetadataResolver::new(provider, cache);
+
+        let result = resolver.lookup(&search(), false, true, UNIX_EPOCH, &mut ());
+
+        assert_eq!(result.origin, LookupOrigin::FreshFallback);
+        assert_eq!(result.candidates[0].provider_key, "fresh");
+        assert!(result.warnings[0].contains("using cached data"));
+        assert!(!result.warnings[0].contains("stale"));
     }
 
     #[test]
