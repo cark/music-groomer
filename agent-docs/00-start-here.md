@@ -10,6 +10,8 @@ Product and technical direction is aligned through milestone 3b. Milestones 1,
 2, 3a, and 3b are implemented, reviewed, verified, and accepted by the user.
 The final milestone 3b loose-library-track exercise confirmed the corrected
 single discovery, animated provider feedback, and phase spacing on 2026-08-28.
+The accepted post-milestone-3 review corrections are implemented and verified
+locally; they have not been pushed.
 Milestone 4 alignment has not begun.
 
 ## Task routing

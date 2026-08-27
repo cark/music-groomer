@@ -22,6 +22,9 @@ This page tracks implementation. Durable product reasoning belongs in the
   implementation and automated verification completed the same day. After two
   read-only real-track exercises and their blocking corrections, the user
   accepted milestone 3b on 2026-08-28.
+- The accepted post-milestone-3 review correction set was implemented and
+  verified on 2026-08-28. This is maintenance of the accepted milestone rather
+  than a new milestone closure; no push has been authorized.
 
 ## Working rules
 
@@ -228,6 +231,24 @@ Acceptance:
   before deterministic ID ordering, preventing an arbitrary five-ID cutoff from
   hiding better-supported single releases. Major terminal phases use consistent
   spacing and headings so the retained interaction history remains scannable.
+
+### Post-milestone-3 review corrections
+
+The accepted correction set consolidates initial and refreshed loose-track
+identification so explicit Refresh can recover from an initial fingerprint
+failure and always merges textual with fingerprint-derived candidates. Current
+preview warnings are rebuilt from categorized state rather than accumulated as
+history, so accepted, retained, and declined refresh results report the causes
+that still apply. Fresh-cache fallback provenance, refreshed ambiguity,
+artwork dimensions, terminal setup duplication, and the subprocess timeout
+test were corrected at the same time.
+
+The cohesion pass extracted fingerprint identification, warning state, and
+artwork interaction from the guided session. The remaining guided module owns
+the sequential session and review flow; no general workflow or event framework
+was introduced. Focused regressions cover recovery, candidate preservation,
+warning replacement and retention, artwork recovery, and fresh versus stale
+cache fallbacks.
 
 ## Milestone 4: safe apply and validation
 
