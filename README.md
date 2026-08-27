@@ -41,3 +41,7 @@ matching, destination access, and Apply are later milestones.
 Agents and contributors should begin with
 [agent-docs/00-start-here.md](agent-docs/00-start-here.md). The current execution
 status is in [agent-docs/development-plan.md](agent-docs/development-plan.md).
+
+## License
+
+music-groomer is available under the [MIT License](LICENSE).
