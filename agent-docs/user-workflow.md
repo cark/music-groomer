@@ -142,7 +142,14 @@ After a handled Apply failure and cleanup, return to the unchanged preview so
 the user can review, change destination, retry, or cancel without repeating
 provider matching. A retry performs fresh destination, collision, permission,
 and space preflight checks. The failure report remains visible in the terminal
-history.
+history. A source-change failure is the exception because it invalidates the
+preview: name the changed path, state that nothing was written, and require a
+fresh inspection.
+
+Immediately before staging, compare the selected source's inspected paths,
+object types, sizes, and modification times. Refuse Apply when that simple
+inventory check changed. Do not hash every source file or attempt to merge
+external changes.
 
 Build and validate in the operating system's temporary directory so ordinary
 failures do not leave dead album copies on persistent storage. Check available
