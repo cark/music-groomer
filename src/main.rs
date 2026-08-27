@@ -110,6 +110,7 @@ fn show_cache_status(cache: &ProviderCache) -> Result<(), String> {
                 status.confirmed_artwork_absences
             ),
         )?;
+        interaction.field("Obsolete entries", status.obsolete_entries.to_string())?;
         interaction.field("Damaged entries", status.damaged_entries.to_string())
     })
     .map_err(|error| error.to_string())?;

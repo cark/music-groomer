@@ -108,8 +108,10 @@ repeating a preview or apply does not immediately refetch identical data.
 
 This cache is an implementation detail, not workflow persistence: it contains
 provider responses and fetch metadata, not jobs, source archives, or apply
-state. Cache freshness, refresh behavior, and corruption handling must be
-explicit. A missing or damaged cache should cost performance, not correctness.
+state. Cache freshness, refresh behavior, schema obsolescence, and corruption
+handling must be explicit. A missing, obsolete, or damaged cache should cost
+performance, not correctness. Valid entries from an older schema are obsolete,
+not damaged; report that distinction without trying to migrate provider data.
 
 Use ordinary atomically written files in the platform user-cache directory, not
 a database. Bound total cache size, prune least-recently used entries, expose a
@@ -142,10 +144,12 @@ silently replacing a materially different active match. Offline mode performs
 no network requests and may use stale cache entries with clear status.
 
 `music-groomer cache` reports cache location, total usage and limit, metadata
-fresh/stale counts, artwork count and size, and damaged-entry count without
-mutating anything. `music-groomer cache clear` confirms before deleting only
-music-groomer's cache. Automatic pruning occurs on writes, never merely because
-status was requested.
+fresh/stale counts, artwork count and size, and separate obsolete- and
+damaged-entry counts without mutating anything. Obsolete and damaged files
+still count toward bounded usage and remain eligible for ordinary pruning.
+`music-groomer cache clear` confirms before deleting only music-groomer's
+cache. Automatic pruning occurs on writes, never merely because status was
+requested.
 
 `--cache-dir PATH` selects an exact cache directory for the whole invocation,
 primarily for smoke tests and other isolated machine runs. Normal grooming,

@@ -35,6 +35,17 @@ impl<P: MetadataProvider> MetadataResolver<P> {
                 }
                 cached
             }
+            Err(CacheError::Obsolete {
+                path,
+                found_schema,
+                current_schema,
+            }) => {
+                warnings.push(format!(
+                    "Ignored obsolete cache entry {} (schema {found_schema}; current schema {current_schema})",
+                    path.display()
+                ));
+                None
+            }
             Err(CacheError::Damaged(path, error)) => {
                 warnings.push(format!(
                     "Ignored damaged cache entry {}: {error}",
@@ -139,6 +150,7 @@ pub enum LookupOrigin {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::time::{Duration, UNIX_EPOCH};
 
     use tempfile::TempDir;
@@ -208,6 +220,40 @@ mod tests {
         assert_eq!(result.origin, LookupOrigin::StaleFallback);
         assert_eq!(result.candidates[0].provider_key, "stale");
         assert!(result.warnings[0].contains("using stale cached data"));
+    }
+
+    #[test]
+    fn obsolete_schema_is_reported_without_calling_it_damaged() {
+        let temporary = TempDir::new().unwrap();
+        let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+        cache
+            .store_metadata(&search(), &[candidate("old")], UNIX_EPOCH)
+            .unwrap();
+        let path = fs::read_dir(cache.root().join("metadata"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let mut stored =
+            serde_json::from_slice::<serde_json::Value>(&fs::read(&path).unwrap()).unwrap();
+        stored["schema"] = serde_json::json!(2);
+        fs::write(path, serde_json::to_vec(&stored).unwrap()).unwrap();
+        let provider = FakeProvider {
+            calls: 0,
+            result: Ok(ProviderSearchResult {
+                candidates: vec![candidate("new")],
+                warnings: Vec::new(),
+            }),
+        };
+        let mut resolver = MetadataResolver::new(provider, cache);
+
+        let result = resolver.lookup(&search(), false, false, UNIX_EPOCH, &mut ());
+
+        assert!(result.warnings.iter().any(|warning| {
+            warning.contains("obsolete cache entry") && !warning.contains("damaged")
+        }));
+        assert_eq!(result.candidates[0].provider_key, "new");
     }
 
     #[test]

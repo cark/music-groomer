@@ -21,6 +21,7 @@ fn cache_status_is_read_only_when_cache_does_not_exist() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("256.0 MiB"));
     assert!(stdout.contains("Metadata: 0 fresh, 0 stale"));
+    assert!(stdout.contains("Obsolete entries: 0"));
     assert!(stdout.contains(override_directory.to_str().unwrap()));
     assert!(!override_directory.exists());
     assert!(!cache_home.exists());

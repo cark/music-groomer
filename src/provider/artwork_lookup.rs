@@ -26,6 +26,17 @@ impl<P: ArtworkProvider> ArtworkResolver<P> {
         let mut warnings = Vec::new();
         let cached = match self.cache.artwork(release_group_id, now) {
             Ok(cached) => cached,
+            Err(CacheError::Obsolete {
+                path,
+                found_schema,
+                current_schema,
+            }) => {
+                warnings.push(format!(
+                    "Ignored obsolete artwork cache entry {} (schema {found_schema}; current schema {current_schema})",
+                    path.display()
+                ));
+                None
+            }
             Err(CacheError::Damaged(path, error)) => {
                 warnings.push(format!(
                     "Ignored damaged artwork cache entry {}: {error}",

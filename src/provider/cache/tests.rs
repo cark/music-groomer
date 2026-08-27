@@ -45,6 +45,34 @@ fn damaged_entry_costs_only_a_cache_miss_signal() {
 }
 
 #[test]
+fn older_schema_is_obsolete_rather_than_damaged_and_still_counts_toward_usage() {
+    let temporary = TempDir::new().unwrap();
+    let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+    let search = search("Album");
+    cache
+        .store_metadata(&search, &[candidate("one")], UNIX_EPOCH)
+        .unwrap();
+    let path = cache.metadata_path(&search).unwrap();
+    let mut stored =
+        serde_json::from_slice::<serde_json::Value>(&fs::read(&path).unwrap()).unwrap();
+    stored["schema"] = serde_json::json!(CACHE_SCHEMA - 1);
+    fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
+
+    assert!(matches!(
+        cache.metadata(&search, UNIX_EPOCH),
+        Err(CacheError::Obsolete {
+            found_schema,
+            current_schema,
+            ..
+        }) if found_schema == CACHE_SCHEMA - 1 && current_schema == CACHE_SCHEMA
+    ));
+    let status = cache.status(UNIX_EPOCH).unwrap();
+    assert_eq!(status.obsolete_entries, 1);
+    assert_eq!(status.damaged_entries, 0);
+    assert_eq!(status.total_bytes, fs::metadata(path).unwrap().len());
+}
+
+#[test]
 fn tiny_limit_prunes_least_recently_used_entries_on_write() {
     let temporary = TempDir::new().unwrap();
     let root = temporary.path().join("cache");

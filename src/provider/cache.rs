@@ -58,10 +58,11 @@ impl ProviderCache {
         let mut stored: StoredMetadata = serde_json::from_slice(&bytes)
             .map_err(|error| CacheError::Damaged(path.clone(), error.to_string()))?;
         if stored.schema != CACHE_SCHEMA {
-            return Err(CacheError::Damaged(
+            return Err(CacheError::Obsolete {
                 path,
-                format!("unsupported cache schema {}", stored.schema),
-            ));
+                found_schema: stored.schema,
+                current_schema: CACHE_SCHEMA,
+            });
         }
         let fetched_at = UNIX_EPOCH + Duration::from_secs(stored.fetched_at);
         let age = now.duration_since(fetched_at).unwrap_or_default();
@@ -125,10 +126,11 @@ impl ProviderCache {
             let stored: StoredArtworkAbsence = serde_json::from_slice(&bytes)
                 .map_err(|error| CacheError::Damaged(path.clone(), error.to_string()))?;
             if stored.schema != CACHE_SCHEMA {
-                return Err(CacheError::Damaged(
+                return Err(CacheError::Obsolete {
                     path,
-                    format!("unsupported cache schema {}", stored.schema),
-                ));
+                    found_schema: stored.schema,
+                    current_schema: CACHE_SCHEMA,
+                });
             }
             let fetched_at = UNIX_EPOCH + Duration::from_secs(stored.fetched_at);
             let freshness = freshness(fetched_at, now);
@@ -204,17 +206,21 @@ impl ProviderCache {
             };
             status.total_bytes = status.total_bytes.saturating_add(bytes.len() as u64);
             match serde_json::from_slice::<StoredMetadata>(&bytes) {
-                Ok(entry) if entry.schema == CACHE_SCHEMA => {
-                    let fetched = UNIX_EPOCH + Duration::from_secs(entry.fetched_at);
-                    if now.duration_since(fetched).unwrap_or_default()
-                        <= Duration::from_secs(METADATA_FRESH_DAYS * 24 * 60 * 60)
-                    {
-                        status.fresh_metadata += 1;
+                Ok(entry) => {
+                    if entry.schema == CACHE_SCHEMA {
+                        let fetched = UNIX_EPOCH + Duration::from_secs(entry.fetched_at);
+                        if now.duration_since(fetched).unwrap_or_default()
+                            <= Duration::from_secs(METADATA_FRESH_DAYS * 24 * 60 * 60)
+                        {
+                            status.fresh_metadata += 1;
+                        } else {
+                            status.stale_metadata += 1;
+                        }
                     } else {
-                        status.stale_metadata += 1;
+                        status.obsolete_entries += 1;
                     }
                 }
-                _ => status.damaged_entries += 1,
+                Err(_) => status.damaged_entries += 1,
             }
         }
         for path in regular_files(&self.root.join("artwork"))? {
@@ -228,10 +234,14 @@ impl ProviderCache {
             status.total_bytes = status.total_bytes.saturating_add(bytes.len() as u64);
             if path.extension().and_then(|extension| extension.to_str()) == Some("json") {
                 match serde_json::from_slice::<StoredArtworkAbsence>(&bytes) {
-                    Ok(entry) if entry.schema == CACHE_SCHEMA => {
-                        status.confirmed_artwork_absences += 1;
+                    Ok(entry) => {
+                        if entry.schema == CACHE_SCHEMA {
+                            status.confirmed_artwork_absences += 1;
+                        } else {
+                            status.obsolete_entries += 1;
+                        }
                     }
-                    _ => status.damaged_entries += 1,
+                    Err(_) => status.damaged_entries += 1,
                 }
             } else if cover_art_archive::decode(bytes.clone()).is_ok() {
                 status.artwork_entries += 1;
@@ -417,6 +427,7 @@ pub struct CacheStatus {
     pub artwork_entries: usize,
     pub artwork_bytes: u64,
     pub confirmed_artwork_absences: usize,
+    pub obsolete_entries: usize,
     pub damaged_entries: usize,
 }
 
@@ -424,6 +435,11 @@ pub struct CacheStatus {
 pub enum CacheError {
     NoPlatformCacheDirectory,
     Io(PathBuf, std::io::Error),
+    Obsolete {
+        path: PathBuf,
+        found_schema: u8,
+        current_schema: u8,
+    },
     Damaged(PathBuf, String),
     NotOwned(PathBuf),
     Serialize(String),
@@ -436,6 +452,15 @@ impl fmt::Display for CacheError {
                 formatter.write_str("this platform has no user cache directory")
             }
             Self::Io(path, error) => write!(formatter, "{}: {error}", path.display()),
+            Self::Obsolete {
+                path,
+                found_schema,
+                current_schema,
+            } => write!(
+                formatter,
+                "obsolete cache entry {} uses schema {found_schema}; current schema is {current_schema}",
+                path.display()
+            ),
             Self::Damaged(path, error) => {
                 write!(formatter, "damaged cache entry {}: {error}", path.display())
             }
