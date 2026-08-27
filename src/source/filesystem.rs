@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::domain::SourceKind;
 
 use super::artwork::{self, ArtworkProbe};
-use super::audio::{AudioProbe, LoftyAudioReader};
+use super::audio::{AudioProbe, AudioReadError, LoftyAudioReader};
 use super::{AncillaryFile, ArtworkCandidate, InspectionNotice, NoticeKind, SourceInspection};
 
 #[derive(Debug)]
@@ -146,6 +146,17 @@ impl SourceInspector {
 
     fn inspect_file(&self, path: &Path, root: &Path, inspection: &mut SourceInspection) {
         let relative_path = relative(path, root).unwrap_or_else(|| path.to_owned());
+        let metadata = match File::open(path).and_then(|file| file.metadata()) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                inspection.notices.push(InspectionNotice::blocker(
+                    NoticeKind::Unreadable,
+                    Some(relative_path),
+                    format!("cannot read file: {error}"),
+                ));
+                return;
+            }
+        };
         match self.audio.probe(path) {
             Ok(AudioProbe::Supported(audio)) => {
                 let mut audio = *audio;
@@ -163,6 +174,7 @@ impl SourceInspector {
                 return;
             }
             Ok(AudioProbe::NotAudio) => {}
+            Err(AudioReadError::Parse(_)) if !probable_audio_extension(path) => {}
             Err(error) => {
                 inspection.notices.push(InspectionNotice::blocker(
                     if probable_audio_extension(path) {
@@ -177,17 +189,6 @@ impl SourceInspector {
             }
         }
 
-        let metadata = match File::open(path).and_then(|file| file.metadata()) {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                inspection.notices.push(InspectionNotice::blocker(
-                    NoticeKind::Unreadable,
-                    Some(relative_path),
-                    format!("cannot read ancillary file: {error}"),
-                ));
-                return;
-            }
-        };
         if probable_audio_extension(path) {
             inspection.notices.push(InspectionNotice::blocker(
                 NoticeKind::UnsupportedAudio,

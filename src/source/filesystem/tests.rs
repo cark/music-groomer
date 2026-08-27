@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use image::{Rgba, RgbaImage};
+use image::{Rgb, RgbImage, Rgba, RgbaImage};
 use tempfile::TempDir;
 
 use super::*;
@@ -195,6 +195,41 @@ fn supported_extension_with_invalid_contents_blocks() {
 
     assert!(inspection.is_blocked());
     assert!(has_notice(&inspection, NoticeKind::CorruptAudio));
+}
+
+#[test]
+fn ordinary_images_logs_and_single_track_cues_survive_failed_audio_probes() {
+    let temporary = TempDir::new().expect("temporary directory should be created");
+    fs::copy(fixture("seed.flac"), temporary.path().join("track.flac"))
+        .expect("audio fixture should be copied");
+    RgbImage::from_pixel(2, 3, Rgb([20, 40, 60]))
+        .save_with_format(temporary.path().join("cover.jpg"), image::ImageFormat::Jpeg)
+        .expect("JPEG fixture should be written");
+    write_image(&temporary.path().join("scan.png"), image::ImageFormat::Png);
+    fs::write(temporary.path().join("rip.log"), "accurate rip")
+        .expect("log fixture should be created");
+    fs::write(
+        temporary.path().join("album.cue"),
+        "FILE \"track.flac\" WAVE\n  TRACK 01 AUDIO\n",
+    )
+    .expect("cue fixture should be created");
+
+    let inspection = SourceInspector::default()
+        .inspect(temporary.path())
+        .expect("source should remain inspectable");
+
+    assert!(!inspection.is_blocked());
+    assert_eq!(inspection.audio.len(), 1);
+    assert_eq!(inspection.artwork.len(), 1);
+    for name in ["cover.jpg", "scan.png", "rip.log", "album.cue"] {
+        assert!(
+            inspection
+                .ancillary
+                .iter()
+                .any(|file| file.relative_path == Path::new(name)),
+            "{name} should be preserved as ancillary"
+        );
+    }
 }
 
 #[test]
