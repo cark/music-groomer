@@ -44,6 +44,7 @@ impl MusicBrainzProvider {
         } else {
             return Err(ProviderError::InsufficientEvidence);
         };
+        let query = format!("({query}) AND status:official");
         Ok(format!(
             "{API_ROOT}/release/?query={}&fmt=json&limit=25",
             urlencoding::encode(&query)
@@ -159,11 +160,7 @@ impl ReleaseDetail {
     fn into_candidate(self) -> Option<CandidateRelease> {
         let group = self.release_group?;
         let album_artist = artist_credit(&self.artist_credit)?;
-        let kind = if group
-            .secondary_types
-            .iter()
-            .any(|kind| kind.eq_ignore_ascii_case("compilation"))
-        {
+        let kind = if is_various_artists(&album_artist) {
             ReleaseKind::Compilation
         } else if group.primary_type.eq_ignore_ascii_case("single") {
             ReleaseKind::Single
@@ -208,8 +205,6 @@ struct ReleaseGroup {
     first_release_date: Option<String>,
     #[serde(rename = "primary-type", default)]
     primary_type: String,
-    #[serde(rename = "secondary-types", default)]
-    secondary_types: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -269,6 +264,12 @@ fn year(value: Option<&str>) -> Option<u16> {
     value?.get(..4)?.parse().ok()
 }
 
+fn is_various_artists(credit: &ArtistCredit) -> bool {
+    const VARIOUS_ARTISTS_ID: &str = "89ad4ac3-39f7-470e-963a-56509c546377";
+    credit.artists.len() == 1
+        && credit.artists[0].musicbrainz_id.as_deref() == Some(VARIOUS_ARTISTS_ID)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,5 +307,26 @@ mod tests {
                 .unwrap()
                 .contains("rgid%3Agroup-id")
         );
+    }
+
+    #[test]
+    fn compilation_requires_the_various_artists_identity() {
+        let named_artist = ArtistCredit::credited(
+            "One Artist",
+            vec![Artist {
+                name: "One Artist".into(),
+                musicbrainz_id: Some("artist-id".into()),
+            }],
+        );
+        let various_artists = ArtistCredit::credited(
+            "Various Artists",
+            vec![Artist {
+                name: "Various Artists".into(),
+                musicbrainz_id: Some("89ad4ac3-39f7-470e-963a-56509c546377".into()),
+            }],
+        );
+
+        assert!(!is_various_artists(&named_artist));
+        assert!(is_various_artists(&various_artists));
     }
 }

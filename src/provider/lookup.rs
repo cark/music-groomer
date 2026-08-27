@@ -26,7 +26,15 @@ impl<P: MetadataProvider> MetadataResolver<P> {
     ) -> MetadataLookup {
         let mut warnings = Vec::new();
         let cached = match self.cache.metadata(search, now) {
-            Ok(cached) => cached,
+            Ok(cached) => {
+                if let Some(warning) = cached
+                    .as_ref()
+                    .and_then(|entry| entry.maintenance_warning.as_ref())
+                {
+                    warnings.push(format!("Could not maintain provider cache: {warning}"));
+                }
+                cached
+            }
             Err(CacheError::Damaged(path, error)) => {
                 warnings.push(format!(
                     "Ignored damaged cache entry {}: {error}",

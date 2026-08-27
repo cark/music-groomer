@@ -178,10 +178,22 @@ fn common_or_problem(
         .tracks
         .iter()
         .filter_map(value)
-        .collect::<BTreeSet<_>>();
-    if values.len() > 1 {
+        .collect::<Vec<_>>();
+    if let Some(first) = values.first()
+        && !values
+            .iter()
+            .all(|value| normalized_field(value) == normalized_field(first))
+    {
         problems.insert(problem.to_owned());
     }
+}
+
+fn normalized_field(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 fn blank(value: &Option<String>) -> bool {

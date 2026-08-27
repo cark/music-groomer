@@ -71,12 +71,16 @@ impl ProviderCache {
             MetadataFreshness::Stale
         };
         stored.accessed_at = unix_seconds(now);
-        self.write_json_atomic(&path, &stored)?;
-        self.prune()?;
+        let maintenance_warning = self
+            .write_json_atomic(&path, &stored)
+            .and_then(|()| self.prune())
+            .err()
+            .map(|error| error.to_string());
         Ok(Some(MetadataCacheEntry {
             candidates: stored.candidates,
             fetched_at,
             freshness,
+            maintenance_warning,
         }))
     }
 
@@ -302,6 +306,7 @@ pub struct MetadataCacheEntry {
     pub candidates: Vec<CandidateRelease>,
     pub fetched_at: SystemTime,
     pub freshness: MetadataFreshness,
+    pub maintenance_warning: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

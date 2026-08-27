@@ -151,8 +151,16 @@ fn common(
     inspection
         .tracks
         .iter()
-        .all(|track| value(track) == Some(first))
+        .all(|track| value(track).is_some_and(|value| normalized(value) == normalized(first)))
         .then(|| first.to_owned())
+}
+
+fn normalized(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 #[cfg(test)]
@@ -182,6 +190,25 @@ mod tests {
         assert_eq!(search.album.as_deref(), Some("Album"));
         assert_eq!(search.artist.as_deref(), Some("Album Artist"));
         assert_eq!(search.track_count, 2);
+        assert!(search.is_usable());
+    }
+
+    #[test]
+    fn cosmetic_case_and_spacing_differences_still_form_a_search() {
+        let mut source = SourceInspection {
+            source: PathBuf::from("incoming/album"),
+            kind: SourceKind::AlbumDirectory,
+            audio: vec![audio(1, "1999"), audio(2, "1999")],
+            ancillary: Vec::new(),
+            artwork: Vec::new(),
+            selected_artwork: None,
+            notices: Vec::new(),
+        };
+        source.audio[1].tags.album = Some("  album  ".into());
+
+        let (_, search) = source_inspection(&source);
+
+        assert_eq!(search.album.as_deref(), Some("Album"));
         assert!(search.is_usable());
     }
 
