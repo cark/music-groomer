@@ -10,8 +10,9 @@ Product and technical direction is aligned through milestone 3b. Milestones 1,
 2, and 3a are implemented, reviewed, verified, and accepted by the user. The
 final milestone 3a real-source terminal exercise confirmed that the visual
 interaction and functionality are satisfactory. Milestone 3b was authorized,
-implemented, and verified on 2026-08-27; it awaits user review and the approved
-read-only exercise with one real standalone track before acceptance.
+implemented, and verified on 2026-08-27. Its read-only real-track exercise
+succeeded; an approved interactive progress correction is implemented and
+awaits the user's terminal confirmation before final acceptance.
 
 ## Task routing
 

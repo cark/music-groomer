@@ -1198,7 +1198,7 @@ impl<I: Interaction> ProviderProgress for InteractionProgress<'_, I> {
             ),
         };
         self.0
-            .prose(message)
+            .status(UiLine::prose(message))
             .map_err(|error| ProviderError::Progress(error.to_string()))
     }
 }

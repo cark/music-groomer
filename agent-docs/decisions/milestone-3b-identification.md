@@ -183,3 +183,18 @@ pages rather than walking a popular recording's complete appearance history.
 Pace every request through the existing one-request-per-second limiter. With at
 most five recording candidates, this discovery phase makes at most ten
 MusicBrainz browse requests before the existing bounded variant resolution.
+
+## Real-track review correction
+
+The approved read-only exercise used one directly selected FLAC track and
+successfully reached a fingerprint-assisted album choice without modifying the
+source. The repeated static request and one-second MusicBrainz spacing lines
+made legitimate provider work resemble a failure loop even though increasing
+1, 2, 4, 8, and 15-second backoff already applied to transient failures.
+
+In human mode, ordinary provider requests and waits therefore update one
+animated transient status line. A subsequent result, warning, failure, or
+prompt clears it and remains in terminal history. Captured and non-interactive
+output retains discrete stable progress lines for tests and future machine
+consumers. The bounded MusicBrainz request fan-out seen for an unusually
+ambiguous fingerprint remains acceptable and is not a blocking correction.

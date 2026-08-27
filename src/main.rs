@@ -151,12 +151,17 @@ fn clear_cache(cache: &ProviderCache) -> Result<(), String> {
 }
 
 fn with_stdio_interaction<T>(
-    action: impl FnOnce(&mut StdioInteraction<io::StdinLock<'_>, io::StdoutLock<'_>>) -> io::Result<T>,
+    action: impl FnOnce(&mut StdioInteraction<io::StdinLock<'_>, io::Stdout>) -> io::Result<T>,
 ) -> io::Result<T> {
     let stdin = io::stdin();
     let stdout = io::stdout();
-    let styling = stdout.is_terminal() && std::env::var_os("NO_COLOR").is_none();
-    let mut interaction = StdioInteraction::new(stdin.lock(), stdout.lock(), styling);
+    let interactive = stdout.is_terminal();
+    let styling = interactive && std::env::var_os("NO_COLOR").is_none();
+    let mut interaction = if interactive {
+        StdioInteraction::for_terminal(stdin.lock(), stdout, styling)
+    } else {
+        StdioInteraction::new(stdin.lock(), stdout, styling)
+    };
     action(&mut interaction)
 }
 
@@ -178,8 +183,13 @@ fn run_demo(scenario: Option<&str>, output: Option<PathBuf>) -> Result<(), Strin
     });
     let stdin = io::stdin();
     let stdout = io::stdout();
-    let styling = stdout.is_terminal() && std::env::var_os("NO_COLOR").is_none();
-    let mut interaction = StdioInteraction::new(stdin.lock(), stdout.lock(), styling);
+    let interactive = stdout.is_terminal();
+    let styling = interactive && std::env::var_os("NO_COLOR").is_none();
+    let mut interaction = if interactive {
+        StdioInteraction::for_terminal(stdin.lock(), stdout, styling)
+    } else {
+        StdioInteraction::new(stdin.lock(), stdout, styling)
+    };
     demo::run(&mut interaction, scenario, output.as_deref())
         .map(|_| ())
         .map_err(|error| error.to_string())
@@ -195,8 +205,13 @@ fn run_inspection(
         .map_err(|error| error.to_string())?;
     let stdin = io::stdin();
     let stdout = io::stdout();
-    let styling = stdout.is_terminal() && std::env::var_os("NO_COLOR").is_none();
-    let mut interaction = StdioInteraction::new(stdin.lock(), stdout.lock(), styling);
+    let interactive = stdout.is_terminal();
+    let styling = interactive && std::env::var_os("NO_COLOR").is_none();
+    let mut interaction = if interactive {
+        StdioInteraction::for_terminal(stdin.lock(), stdout, styling)
+    } else {
+        StdioInteraction::new(stdin.lock(), stdout, styling)
+    };
     if inspection.is_blocked() {
         inspection_ui::run(&mut interaction, &inspection)
             .map_err(|error| format!("terminal interaction failed: {error}"))?;

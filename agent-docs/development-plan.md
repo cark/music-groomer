@@ -182,7 +182,7 @@ set is implemented and recorded in
 
 ## Milestone 3b: difficult loose-track identification
 
-Status: implemented and verified; awaiting user review and real-track exercise
+Status: implemented and verified; awaiting final interactive-progress review
 
 Add the optional `fpcalc` and AcoustID fallback for one poorly identified loose
 track only after milestone 3a proves the normal provider-backed workflow.
@@ -217,6 +217,10 @@ Acceptance:
   boundaries and have deterministic fake-backed tests.
 - Acceptance includes a separately approved read-only guided exercise with one
   real standalone track; it performs no Apply or library write.
+- The real-track exercise completed successfully on 2026-08-27. Human-mode
+  provider requests and rate-limit waits now share one animated transient
+  status line instead of accumulating static lines. Completed phases, warnings,
+  and failures remain visible; captured output keeps stable discrete events.
 
 ## Milestone 4: safe apply and validation
 

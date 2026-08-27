@@ -1,4 +1,7 @@
 use std::io::{self, BufRead, Write};
+use std::time::Duration;
+
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 
 use super::{Interaction, SemanticRole, UiLine};
 
@@ -6,6 +9,8 @@ pub struct StdioInteraction<R, W> {
     input: R,
     output: W,
     styling: bool,
+    interactive: bool,
+    status: Option<ProgressBar>,
 }
 
 impl<R, W> StdioInteraction<R, W> {
@@ -14,22 +19,54 @@ impl<R, W> StdioInteraction<R, W> {
             input,
             output,
             styling,
+            interactive: false,
+            status: None,
+        }
+    }
+
+    pub fn for_terminal(input: R, output: W, styling: bool) -> Self {
+        Self {
+            input,
+            output,
+            styling,
+            interactive: true,
+            status: None,
         }
     }
 }
 
 impl<R: BufRead, W: Write> Interaction for StdioInteraction<R, W> {
     fn present(&mut self, line: UiLine) -> io::Result<()> {
+        self.clear_status();
         self.write_line(&line)?;
         self.output.write_all(b"\n")
     }
 
     fn prompt(&mut self, prompt: UiLine) -> io::Result<String> {
+        self.clear_status();
         self.write_line(&prompt)?;
         self.output.flush()?;
         let mut answer = String::new();
         self.input.read_line(&mut answer)?;
         Ok(answer.trim().to_owned())
+    }
+
+    fn status(&mut self, line: UiLine) -> io::Result<()> {
+        if !self.interactive {
+            return self.present(line);
+        }
+        let styling = self.styling;
+        let status = self.status.get_or_insert_with(|| new_status(styling));
+        status.set_message(line.plain_text().trim().to_owned());
+        Ok(())
+    }
+}
+
+impl<R, W> StdioInteraction<R, W> {
+    fn clear_status(&mut self) {
+        if let Some(status) = self.status.take() {
+            status.finish_and_clear();
+        }
     }
 }
 
@@ -46,6 +83,28 @@ impl<R, W: Write> StdioInteraction<R, W> {
         }
         Ok(())
     }
+}
+
+impl<R, W> Drop for StdioInteraction<R, W> {
+    fn drop(&mut self) {
+        self.clear_status();
+    }
+}
+
+fn new_status(styling: bool) -> ProgressBar {
+    let status = ProgressBar::with_draw_target(None, ProgressDrawTarget::stdout());
+    let template = if styling {
+        "  {spinner:.cyan} {msg}"
+    } else {
+        "  {spinner} {msg}"
+    };
+    status.set_style(
+        ProgressStyle::with_template(template)
+            .expect("the terminal status template is valid")
+            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+    );
+    status.enable_steady_tick(Duration::from_millis(80));
+    status
 }
 
 fn ansi(role: SemanticRole) -> &'static str {
@@ -75,6 +134,7 @@ mod tests {
         terminal
             .present(UiLine::field("Album", "Evolution"))
             .unwrap();
+        drop(terminal);
 
         assert_eq!(String::from_utf8(rendered).unwrap(), "  Album: Evolution\n");
     }
@@ -92,10 +152,48 @@ mod tests {
                     .with(SemanticRole::Warning, "carefully"),
             )
             .unwrap();
+        drop(terminal);
 
         assert_eq!(
             String::from_utf8(rendered).unwrap(),
             "\x1b[1;36m[r]\x1b[0m Review \x1b[33mcarefully\x1b[0m\n"
+        );
+    }
+
+    #[test]
+    fn non_interactive_status_is_stable_output() {
+        let mut rendered = Vec::new();
+        let mut terminal =
+            StdioInteraction::new(Cursor::new(Vec::<u8>::new()), &mut rendered, false);
+
+        terminal
+            .status(UiLine::prose("  MusicBrainz search..."))
+            .unwrap();
+        drop(terminal);
+
+        assert_eq!(
+            String::from_utf8(rendered).unwrap(),
+            "  MusicBrainz search...\n"
+        );
+    }
+
+    #[test]
+    fn interactive_status_is_transient_and_cleared_by_persistent_output() {
+        let mut rendered = Vec::new();
+        let mut terminal =
+            StdioInteraction::for_terminal(Cursor::new(Vec::<u8>::new()), &mut rendered, false);
+
+        terminal
+            .status(UiLine::prose("MusicBrainz search..."))
+            .unwrap();
+        assert!(terminal.status.is_some());
+        terminal.success("MusicBrainz lookup completed.").unwrap();
+        assert!(terminal.status.is_none());
+        drop(terminal);
+
+        assert_eq!(
+            String::from_utf8(rendered).unwrap(),
+            "MusicBrainz lookup completed.\n"
         );
     }
 }

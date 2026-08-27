@@ -10,6 +10,10 @@ pub trait Interaction {
     fn present(&mut self, line: UiLine) -> io::Result<()>;
     fn prompt(&mut self, prompt: UiLine) -> io::Result<String>;
 
+    fn status(&mut self, line: UiLine) -> io::Result<()> {
+        self.present(line)
+    }
+
     fn blank(&mut self) -> io::Result<()> {
         self.present(UiLine::blank())
     }
