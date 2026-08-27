@@ -100,6 +100,29 @@ fn clearly_different_album_tags_block_accidental_batch_processing() {
 }
 
 #[test]
+fn cosmetic_album_title_differences_warn_without_blocking() {
+    let temporary = TempDir::new().expect("temporary directory should be created");
+    let first = temporary.path().join("one.flac");
+    let second = temporary.path().join("two.flac");
+    fs::copy(fixture("seed.flac"), &first).expect("first fixture should be copied");
+    fs::copy(fixture("seed.flac"), &second).expect("second fixture should be copied");
+    LoftyAudioReader
+        .write_tags(&first, &plan("Evolution", 1))
+        .expect("first fixture should be tagged");
+    LoftyAudioReader
+        .write_tags(&second, &plan("  EVOLUTION  ", 2))
+        .expect("second fixture should be tagged");
+
+    let inspection = SourceInspector::default()
+        .inspect(temporary.path())
+        .expect("source should be inspectable");
+
+    assert!(!inspection.is_blocked());
+    assert!(has_notice(&inspection, NoticeKind::ContradictoryMetadata));
+    assert!(!has_notice(&inspection, NoticeKind::MultipleReleases));
+}
+
+#[test]
 fn cue_sheet_with_multiple_virtual_tracks_blocks() {
     let temporary = TempDir::new().expect("temporary directory should be created");
     fs::copy(fixture("seed.flac"), temporary.path().join("album.flac"))
@@ -122,6 +145,25 @@ fn cue_sheet_with_multiple_virtual_tracks_blocks() {
             .iter()
             .any(|file| file.relative_path == Path::new("album.cue"))
     );
+}
+
+#[test]
+fn non_utf8_cue_sheet_still_blocks_a_multi_track_image() {
+    let temporary = TempDir::new().expect("temporary directory should be created");
+    fs::copy(fixture("seed.flac"), temporary.path().join("album.flac"))
+        .expect("audio fixture should be copied");
+    fs::write(
+        temporary.path().join("album.cue"),
+        b"FILE \"album.flac\" WAVE\nPERFORMER \"invalid \xff name\"\n  TRACK 01 AUDIO\n  track 02 AUDIO\n",
+    )
+    .expect("cue fixture should be created");
+
+    let inspection = SourceInspector::default()
+        .inspect(temporary.path())
+        .expect("source should be inspectable");
+
+    assert!(inspection.is_blocked());
+    assert!(has_notice(&inspection, NoticeKind::CueImage));
 }
 
 #[test]

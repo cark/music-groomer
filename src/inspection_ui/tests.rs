@@ -98,6 +98,38 @@ fn blockers_explain_the_path_cause_and_source_status() {
     assert!(inspection.is_blocked());
 }
 
+#[test]
+fn unresolved_artwork_candidates_do_not_promise_multiple_sidecars() {
+    let temporary = TempDir::new().expect("temporary directory should be created");
+    fs::copy(fixture("seed.flac"), temporary.path().join("track.flac"))
+        .expect("audio fixture should be copied");
+    for name in ["cover.png", "COVER.gif"] {
+        RgbaImage::from_pixel(2, 3, Rgba([20, 40, 60, 255]))
+            .save(temporary.path().join(name))
+            .expect("artwork fixture should be created");
+    }
+    let inspection = SourceInspector::default()
+        .inspect(temporary.path())
+        .expect("fixture should inspect");
+    let mut interaction = ScriptedInteraction::new(&["r", "d"]);
+
+    run(&mut interaction, &inspection).expect("guided review should complete");
+
+    assert!(
+        interaction
+            .transcript
+            .contains("No canonical sidecar selected yet")
+    );
+    assert_eq!(
+        interaction
+            .transcript
+            .matches("Preserved unchanged")
+            .count(),
+        2
+    );
+    assert!(!interaction.transcript.contains("Eventual sidecar"));
+}
+
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/audio")

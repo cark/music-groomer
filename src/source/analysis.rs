@@ -42,14 +42,24 @@ fn inspect_release_shape(inspection: &mut SourceInspection) {
 
     let albums = values(&inspection.audio, |audio| audio.tags.album.as_deref());
     if albums.len() > 1 && inspection.kind == SourceKind::AlbumDirectory {
-        inspection.notices.push(InspectionNotice::blocker(
-            NoticeKind::MultipleReleases,
-            None,
-            format!(
-                "directory appears to contain multiple releases: {}",
-                albums.into_iter().collect::<Vec<_>>().join(", ")
-            ),
-        ));
+        let labels = albums.iter().cloned().collect::<Vec<_>>().join(", ");
+        let normalized = albums
+            .iter()
+            .map(|album| normalized_album_title(album))
+            .collect::<BTreeSet<_>>();
+        if normalized.len() > 1 {
+            inspection.notices.push(InspectionNotice::blocker(
+                NoticeKind::MultipleReleases,
+                None,
+                format!("directory appears to contain multiple releases: {labels}"),
+            ));
+        } else {
+            inspection.notices.push(InspectionNotice::warning(
+                NoticeKind::ContradictoryMetadata,
+                None,
+                format!("tracks use cosmetically different album titles: {labels}"),
+            ));
+        }
     }
     inspect_common_field(inspection, "album artist", |audio| {
         audio.tags.album_artist.as_deref()
@@ -177,26 +187,54 @@ fn inspect_cue_shape(root: &Path, inspection: &mut SourceInspection) {
     if inspection.kind != SourceKind::AlbumDirectory || inspection.audio.len() != 1 {
         return;
     }
-    for ancillary in &inspection.ancillary {
-        if !has_extension(&ancillary.relative_path, "cue") {
-            continue;
-        }
-        let path = root.join(&ancillary.relative_path);
-        let Ok(contents) = fs::read_to_string(&path) else {
-            continue;
+    let cue_paths = inspection
+        .ancillary
+        .iter()
+        .filter(|ancillary| has_extension(&ancillary.relative_path, "cue"))
+        .map(|ancillary| ancillary.relative_path.clone())
+        .collect::<Vec<_>>();
+    for relative_path in cue_paths {
+        let path = root.join(&relative_path);
+        let contents = match fs::read(&path) {
+            Ok(contents) => contents,
+            Err(error) => {
+                inspection.notices.push(InspectionNotice::blocker(
+                    NoticeKind::Unreadable,
+                    Some(relative_path),
+                    format!("cannot inspect cue sheet structure: {error}"),
+                ));
+                continue;
+            }
         };
         let track_count = contents
-            .lines()
-            .filter(|line| line.trim_start().to_ascii_uppercase().starts_with("TRACK "))
+            .split(|byte| *byte == b'\n')
+            .filter(|line| starts_with_ascii_keyword(line, b"TRACK "))
             .count();
         if track_count > 1 {
             inspection.notices.push(InspectionNotice::blocker(
                 NoticeKind::CueImage,
-                Some(ancillary.relative_path.clone()),
+                Some(relative_path),
                 "cue sheet describes multiple virtual tracks in one audio image; split it externally before grooming",
             ));
         }
     }
+}
+
+fn normalized_album_title(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+fn starts_with_ascii_keyword(line: &[u8], keyword: &[u8]) -> bool {
+    let line = line
+        .iter()
+        .position(|byte| !byte.is_ascii_whitespace())
+        .map_or(&[][..], |start| &line[start..]);
+    line.get(..keyword.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(keyword))
 }
 
 fn inspect_stale_references(inspection: &mut SourceInspection) {

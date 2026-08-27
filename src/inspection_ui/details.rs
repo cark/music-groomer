@@ -127,19 +127,27 @@ fn show_artwork(
         return Ok(());
     }
     show_styled(interaction, TextStyle::Label, "  Source artwork candidates")?;
+    if inspection.selected_artwork.is_none() {
+        show_styled(
+            interaction,
+            TextStyle::Warning,
+            "    No canonical sidecar selected yet.",
+        )?;
+    }
     for (index, artwork) in inspection.artwork.iter().enumerate() {
-        let selected = if inspection.selected_artwork == Some(index) {
-            " (selected)"
-        } else {
-            ""
-        };
+        let is_selected = inspection.selected_artwork == Some(index);
+        let selected = if is_selected { " (selected)" } else { "" };
         interaction.show(&format!("    {}{selected}", artwork_summary(artwork)))?;
-        let canonical = format!("cover.{}", artwork.format.canonical_extension());
-        if artwork.relative_path.to_string_lossy() != canonical {
-            interaction.show(&format!(
-                "      Eventual sidecar: {} → {canonical}",
-                artwork.relative_path.display()
-            ))?;
+        if is_selected {
+            let canonical = format!("cover.{}", artwork.format.canonical_extension());
+            if artwork.relative_path.to_string_lossy() != canonical {
+                interaction.show(&format!(
+                    "      Eventual sidecar: {} → {canonical}",
+                    artwork.relative_path.display()
+                ))?;
+            }
+        } else {
+            interaction.show("      Preserved unchanged unless selected later")?;
         }
     }
     Ok(())
