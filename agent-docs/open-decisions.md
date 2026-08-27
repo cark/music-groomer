@@ -21,6 +21,5 @@ decision page.
 
 ## Open questions
 
-None currently recorded. Milestone 2's individual decisions are aligned and
-documented, but implementation still requires the user's explicit overall
-approval.
+None currently recorded. Milestone 2's decisions are aligned and its
+implementation awaits user review; this does not authorize milestone 3.

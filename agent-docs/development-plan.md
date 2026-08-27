@@ -9,8 +9,8 @@ This page tracks implementation. Durable product reasoning belongs in the
 - Milestone 0 documentation baseline completed on 2026-08-27.
 - Milestone 1's revised guided interaction was accepted by the user on
   2026-08-27.
-- Milestone 2's decisions are documented and awaiting final scope approval;
-  implementation has not been authorized.
+- Milestone 2 was authorized, implemented, and verified on 2026-08-27; it now
+  awaits user review and acceptance.
 
 ## Working rules
 
@@ -70,7 +70,7 @@ part of the intended end-user workflow.
 
 ## Milestone 2: file inspection and preservation
 
-Status: aligned, awaiting explicit implementation approval
+Status: implemented and verified, awaiting user acceptance
 
 Add the genuine read-only `music-groomer SOURCE` guided inspection backed by a
 structured filesystem inventory and Lofty tag reader. Implement tag writing as
@@ -104,6 +104,16 @@ Acceptance:
 - A format that fails the preservation contract remains visibly unsupported.
 - A successful inspection can carry warnings and exit successfully; blockers
   fail coherently without touching the source or configured destination.
+
+Review the real read-only command without using personal music:
+
+```text
+nix develop -c cargo run -- tests/fixtures/audio/seed.flac
+```
+
+This deliberately sparse synthetic loose track demonstrates missing-tag
+warnings and the detailed review menu. The full recursive and preservation
+behaviors are covered by temporary-directory and format-specific tests.
 
 ## Milestone 3: providers, cache, and real matching
 
