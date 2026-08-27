@@ -55,6 +55,12 @@ wait for the answer, and record it before moving on. Do not bundle open choices
 into a questionnaire. Implementation begins only after the user explicitly
 confirms overall alignment.
 
+Positive feedback on an exercise or correction does not by itself close a
+milestone. Summarize the acceptance evidence and ask for explicit permission
+before recording a milestone as accepted or complete. Likewise, ask for fresh
+explicit permission immediately before every push; do not treat an older or
+conditional push discussion as standing authorization.
+
 Treat alignment as collaboration rather than approval seeking. Give a genuine
 recommendation and raise substantive pushback when evidence, tradeoffs,
 contradictions, or a simpler design warrant it. Do not manufacture objections

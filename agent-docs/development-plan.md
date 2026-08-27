@@ -26,7 +26,10 @@ This page tracks implementation. Durable product reasoning belongs in the
 ## Working rules
 
 - Complete and verify one milestone before building on it.
+- Ask explicitly before closing or accepting a milestone, even when the user
+  has just given positive feedback.
 - Make small coherent commits; do not mix milestones or unrelated cleanup.
+- Keep commits local until the user explicitly authorizes that specific push.
 - Keep the guided workflow usable while adding adapters underneath it.
 - Use temporary fixtures for automated tests.
 - Do not access real source music or the live library without path-specific
