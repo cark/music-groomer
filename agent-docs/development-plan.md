@@ -24,7 +24,7 @@ This page tracks implementation. Durable product reasoning belongs in the
   accepted milestone 3b on 2026-08-28.
 - The accepted post-milestone-3 review correction set was implemented and
   verified on 2026-08-28. This is maintenance of the accepted milestone rather
-  than a new milestone closure; no push has been authorized.
+  than a new milestone closure.
 
 ## Working rules
 

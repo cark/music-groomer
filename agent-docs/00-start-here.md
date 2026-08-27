@@ -10,8 +10,7 @@ Product and technical direction is aligned through milestone 3b. Milestones 1,
 2, 3a, and 3b are implemented, reviewed, verified, and accepted by the user.
 The final milestone 3b loose-library-track exercise confirmed the corrected
 single discovery, animated provider feedback, and phase spacing on 2026-08-28.
-The accepted post-milestone-3 review corrections are implemented and verified
-locally; they have not been pushed.
+The accepted post-milestone-3 review corrections are implemented and verified.
 Milestone 4 alignment has not begun.
 
 ## Task routing
@@ -48,6 +47,9 @@ decision or deferral. Do not load unrelated pages merely because they exist.
   requirements.
 - Link to the relevant page instead of duplicating detailed policy.
 - Add a TODO when history or rationale is missing; do not invent it.
+- Keep temporary execution and permission state in
+  [current work](current-work.md), not durable decision pages. That recovery
+  checkpoint is capped at 30 short lines and must be verified against Git.
 
 ## Alignment style
 
