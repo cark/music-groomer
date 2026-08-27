@@ -23,6 +23,12 @@ or complete library.
 Keep acoustic identification narrow: it is an optional fallback for one
 selected loose track, not a bulk fingerprinting pipeline or submission service.
 
+The project may be published for other Navidrome and self-hosted music users,
+but remains primarily shaped by the demonstrated household workflow. Describe
+it as experimental or pre-alpha until safe Apply and the real-album exercise
+succeed. Public availability creates no compatibility or support promise and
+must not broaden v0.1 speculatively.
+
 Process one explicitly selected item per guided v0.1 session: either one album
 directory or one loose track. Playlist and multi-item batch processing are
 deliberately deferred until the single-item workflow is proven.

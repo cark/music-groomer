@@ -39,6 +39,9 @@ library discovery, in-place updates, or a durable ingestion database.
 - Minimal manual rescue for a liked album or track that remains unidentified;
   this is important, but follows the provider-backed v0.1 rather than turning
   initial matching into a general tag editor.
+- Manual provider-search refinement with user-edited artist, album, or title
+  terms. This could recover a match when poor source tags produce a bad
+  automatic query, but is deferred until real misses demonstrate the need.
 - Artwork transcoding when the only plausible cover uses a format Navidrome
   cannot consume directly.
 - Concurrent source-change detection beyond staging and result validation.

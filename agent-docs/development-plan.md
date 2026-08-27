@@ -118,13 +118,13 @@ This deliberately sparse synthetic loose track demonstrates missing-tag
 warnings and the detailed review menu. The full recursive and preservation
 behaviors are covered by temporary-directory and format-specific tests.
 
-## Milestone 3: providers, cache, and real matching
+## Milestone 3a: providers, cache, and real matching
 
 Status: pending
 
 Integrate MusicBrainz and Cover Art Archive behind narrow adapters. Add the
-bounded file cache and optional `fpcalc`/AcoustID fallback for one poorly
-identified loose track.
+bounded file cache. Keep `fpcalc` and AcoustID out of this milestone so the
+ordinary album workflow is proven first.
 
 Acceptance:
 
@@ -134,9 +134,23 @@ Acceptance:
 - Provider failures degrade to cache or coherent existing metadata as designed.
 - Cache entries are atomic, corruptible without correctness loss, refreshable,
   clearable, and pruned under the configurable 256 MiB default limit.
+- A fresh 30-day metadata cache entry completely bypasses the provider; stale
+  data remains a visible fallback when refresh fails.
+- Core provider tests are fully offline and use fakes. A separate explicitly
+  invoked smoke test makes a tiny live query without real music or library paths.
+
+## Milestone 3b: difficult loose-track identification
+
+Status: pending
+
+Add the optional `fpcalc` and AcoustID fallback for one poorly identified loose
+track only after milestone 3a proves the normal provider-backed workflow.
+
+Acceptance:
+
 - AcoustID is lookup-only, optional, cached, and never used routinely on albums.
-- Core provider tests use fakes; narrowly scoped live smoke tests use no real
-  music or library paths.
+- Fingerprinting and provider behavior remain behind narrow process and provider
+  boundaries and have deterministic fake-backed tests.
 
 ## Milestone 4: safe apply and validation
 

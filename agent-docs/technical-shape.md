@@ -61,6 +61,19 @@ Apple Music, Last.fm, or another metadata source until real misses demonstrate a
 need. Keep provider responses mapped into small local domain values so client
 library choices do not leak into the core.
 
+After a non-blocking local inspection, the guided workflow searches MusicBrainz
+automatically and visibly announces potentially slow network work. Existing
+identifiers, tags, filenames, positions, and durations form both the query and
+the explainable ranking evidence. A clear result is selected automatically;
+the human view initially shows at most three materially distinct ambiguous
+results and can show more. Keep every usable candidate in structured workflow
+data so a future machine interface is not constrained by terminal presentation.
+
+Fetch Cover Art Archive data only after the metadata match is settled. Use the
+release-group 1200-pixel front rather than choosing an edition-specific scan.
+A provider match without usable source or archive artwork remains valid with a
+prominent warning.
+
 For one explicitly selected loose track, v0.1 may use `fpcalc` and an AcoustID
 lookup only when MusicBrainz identifiers, existing tags, filename, and duration
 do not produce sufficient confidence. Keep this optional and behind narrow
@@ -88,6 +101,13 @@ a database. Bound total cache size, prune expired metadata and least-recently
 used entries, expose a straightforward clear operation, and make the size limit
 configurable. The default maximum is 256 MiB. Test pruning with a deliberately
 tiny limit and controlled time.
+
+A metadata entry is fresh for a named, documented 30-day constant in v0.1. A
+fresh hit bypasses MusicBrainz completely. Refresh stale metadata; if that
+request fails, use the stale entry with a visible warning. Reuse cached artwork
+without routine redownloads. Explicit refresh bypasses freshness, and a corrupt
+entry behaves as a cache miss. Do not expose freshness as configuration until
+real use demonstrates a need.
 
 ## Apply transaction
 

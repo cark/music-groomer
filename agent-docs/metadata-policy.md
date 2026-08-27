@@ -70,6 +70,10 @@ Use the album's original release year as its canonical `DATE` and as the year
 used by the destination layout. A later reissue or edition may supply the
 matching track list without changing the album's displayed year.
 
+If a confident provider match lacks an original release year, preserve an
+existing source year and mark it as unverified. If neither provider nor source
+supplies a year, leave it absent and warn rather than inventing one.
+
 For a compilation, this means the compilation album's own original release
 year, not the original release years of its individual songs.
 
