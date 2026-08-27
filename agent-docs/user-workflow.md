@@ -138,6 +138,12 @@ whether the source remained untouched, whether anything reached the
 destination, and whether temporary data was cleaned. Never reduce these facts
 to an unexplained `operation failed` message.
 
+After a handled Apply failure and cleanup, return to the unchanged preview so
+the user can review, change destination, retry, or cancel without repeating
+provider matching. A retry performs fresh destination, collision, permission,
+and space preflight checks. The failure report remains visible in the terminal
+history.
+
 Build and validate in the operating system's temporary directory so ordinary
 failures do not leave dead album copies on persistent storage. Check available
 temporary space before starting and remove temporary work after success or any
