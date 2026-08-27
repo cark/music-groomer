@@ -7,8 +7,9 @@ This page tracks implementation. Durable product reasoning belongs in the
 
 - Product and technical alignment completed on 2026-08-27.
 - Milestone 0 documentation baseline completed on 2026-08-27.
-- Milestone 1's first guided-interaction review completed on 2026-08-27; the
-  accepted readability and destination refinements are being implemented.
+- Milestone 1's first guided-interaction review completed on 2026-08-27. Its
+  accepted readability and destination refinements are implemented and await
+  a brief confirmation pass.
 - Milestone 2 has not been authorized.
 
 ## Working rules
@@ -36,7 +37,7 @@ Acceptance:
 
 ## Milestone 1: core and guided UX
 
-Status: implementing accepted UX review feedback
+Status: awaiting revised UX review
 
 Build domain values for inspection, candidates, decisions, changes, warnings,
 layout, immutable plans, and apply reports. Implement deterministic matching and
@@ -53,16 +54,19 @@ Acceptance:
   standalone layouts have focused tests.
 - User reviews the runnable fake-data interaction before milestone 2.
 
-Review the interaction without touching real files or providers:
+Review the interaction without reading music, writing files, saving settings,
+or contacting providers:
 
 ```text
 nix develop -c cargo run -- demo
 ```
 
 The session offers an ordinary album, an ambiguous collaboration, a matched
-single, and an unmatched standalone track. Its Apply action is explicitly
-simulated and writes nothing. Named scenarios are also available for focused
-testing, but are not part of the intended end-user workflow.
+single, and an unmatched standalone track. Its Apply and configuration-save
+actions are explicitly simulated and write nothing. A destination supplied by
+the user is checked only for existence, directory type, and final-path
+collision. Named scenarios are also available for focused testing, but are not
+part of the intended end-user workflow.
 
 ## Milestone 2: file inspection and preservation
 
