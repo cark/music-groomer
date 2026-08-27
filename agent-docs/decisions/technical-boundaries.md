@@ -64,8 +64,9 @@ alternatives. Do not use machine learning or unexplained confidence numbers.
 Use ordinary atomically written files in the platform user-cache directory for
 provider JSON and artwork. Do not use a database. Treat damage as a miss, allow
 refresh and clearing, and store no workflow or source data. Enforce a
-configurable 256 MiB default maximum, pruning expired and least-recently used
-entries. Test eviction under a tiny deterministic limit.
+configurable 256 MiB default maximum and prune least-recently used entries.
+Stale metadata remains eligible as a provider-unavailable fallback until the
+size bound evicts it. Test eviction under a tiny deterministic limit.
 
 ## Apply and cleanup
 

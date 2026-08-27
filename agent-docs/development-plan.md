@@ -11,8 +11,9 @@ This page tracks implementation. Durable product reasoning belongs in the
   2026-08-27.
 - Milestone 2 was authorized, implemented, reviewed, and accepted on
   2026-08-27.
-- Milestone 3a product and technical alignment completed on 2026-08-27;
-  implementation awaits explicit authorization.
+- Milestone 3a product and technical alignment completed on 2026-08-27.
+- Milestone 3a was authorized, implemented, and verified on 2026-08-27; it
+  awaits user review before milestone 3b is considered.
 
 ## Working rules
 
@@ -122,7 +123,7 @@ behaviors are covered by temporary-directory and format-specific tests.
 
 ## Milestone 3a: providers, cache, and real matching
 
-Status: aligned, awaiting implementation authorization
+Status: implemented and verified, awaiting user review
 
 Integrate MusicBrainz and Cover Art Archive behind narrow adapters. Add the
 bounded file cache. Keep `fpcalc` and AcoustID out of this milestone so the
@@ -144,6 +145,19 @@ Acceptance:
   cache status and confirmed clearing touch only music-groomer's bounded cache.
 - Core provider tests are fully offline and use fakes. A separate explicitly
   invoked smoke test makes a tiny live query without real music or library paths.
+
+Implementation review commands:
+
+```text
+nix develop -c cargo run -- cache
+nix develop -c cargo run -- --offline tests/fixtures/audio/seed.flac
+nix develop -c cargo test --test live_provider -- --ignored --nocapture
+```
+
+The sparse offline fixture intentionally ends with a clear metadata blocker.
+Ordinary and refresh paths are exercised with deterministic provider fakes;
+the ignored live tests query MusicBrainz and the Cover Art Archive without
+accessing any selected source or destination.
 
 ## Milestone 3b: difficult loose-track identification
 

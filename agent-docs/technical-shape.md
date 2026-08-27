@@ -104,10 +104,12 @@ state. Cache freshness, refresh behavior, and corruption handling must be
 explicit. A missing or damaged cache should cost performance, not correctness.
 
 Use ordinary atomically written files in the platform user-cache directory, not
-a database. Bound total cache size, prune expired metadata and least-recently
-used entries, expose a straightforward clear operation, and make the size limit
-configurable. The default maximum is 256 MiB. Test pruning with a deliberately
-tiny limit and controlled time.
+a database. Bound total cache size, prune least-recently used entries, expose a
+straightforward clear operation, and make the size limit configurable. The
+default maximum is 256 MiB. Test pruning with a deliberately tiny limit and
+controlled time. Staleness alone does not delete metadata because stale data is
+the intended provider-unavailable fallback; the size bound prevents it from
+growing without limit.
 
 A metadata entry is fresh for a named, documented 30-day constant in v0.1. A
 fresh hit bypasses MusicBrainz completely. Refresh stale metadata; if that

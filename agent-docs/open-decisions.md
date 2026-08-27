@@ -21,5 +21,5 @@ decision page.
 
 ## Open questions
 
-None currently recorded. Milestone 3a is aligned but awaits explicit
-implementation authorization. Milestone 3b remains pending.
+None currently recorded. Milestone 3a awaits user review of the implemented
+guided matching and cache behavior. Milestone 3b remains pending.
