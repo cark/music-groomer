@@ -9,8 +9,9 @@ must never modify the selected source.
 Product and technical direction is aligned through milestone 3b. Milestones 1,
 2, and 3a are implemented, reviewed, verified, and accepted by the user. The
 final milestone 3a real-source terminal exercise confirmed that the visual
-interaction and functionality are satisfactory. Milestone 3b is aligned and
-awaits separate implementation authorization.
+interaction and functionality are satisfactory. Milestone 3b was authorized,
+implemented, and verified on 2026-08-27; it awaits user review and the approved
+read-only exercise with one real standalone track before acceptance.
 
 ## Task routing
 
@@ -60,3 +61,8 @@ recommendation and raise substantive pushback when evidence, tradeoffs,
 contradictions, or a simpler design warrant it. Do not manufacture objections
 merely to demonstrate independence or to satisfy this rule; agreement is the
 right answer when the proposal is sound.
+
+Before a large implementation boundary after lengthy alignment, proactively
+suggest a conversation compaction and provide the exact resume phrase. This
+keeps the handoff cheap without making the user spend a turn asking whether the
+durable documentation is sufficient.

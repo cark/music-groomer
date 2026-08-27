@@ -18,8 +18,10 @@ This page tracks implementation. Durable product reasoning belongs in the
   and verified on 2026-08-27. The user completed the final read-only Evolution
   terminal exercise and accepted milestone 3a's functionality and revised
   visual presentation.
-- Milestone 3b product and technical alignment completed on 2026-08-27;
-  implementation has not yet been authorized.
+- Milestone 3b product and technical alignment completed on 2026-08-27. Its
+  implementation and automated verification completed the same day; user
+  review and the approved read-only real-track exercise remain before
+  acceptance.
 
 ## Working rules
 
@@ -180,7 +182,7 @@ set is implemented and recorded in
 
 ## Milestone 3b: difficult loose-track identification
 
-Status: aligned; awaiting explicit implementation authorization
+Status: implemented and verified; awaiting user review and real-track exercise
 
 Add the optional `fpcalc` and AcoustID fallback for one poorly identified loose
 track only after milestone 3a proves the normal provider-backed workflow.
