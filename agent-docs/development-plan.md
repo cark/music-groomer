@@ -19,9 +19,9 @@ This page tracks implementation. Durable product reasoning belongs in the
   terminal exercise and accepted milestone 3a's functionality and revised
   visual presentation.
 - Milestone 3b product and technical alignment completed on 2026-08-27. Its
-  implementation and automated verification completed the same day; user
-  review and the approved read-only real-track exercise remain before
-  acceptance.
+  implementation and automated verification completed the same day. After two
+  read-only real-track exercises and their blocking corrections, the user
+  accepted milestone 3b on 2026-08-28.
 
 ## Working rules
 
@@ -182,7 +182,7 @@ set is implemented and recorded in
 
 ## Milestone 3b: difficult loose-track identification
 
-Status: implemented and verified; awaiting final interactive-progress review
+Status: accepted on 2026-08-28
 
 Add the optional `fpcalc` and AcoustID fallback for one poorly identified loose
 track only after milestone 3a proves the normal provider-backed workflow.

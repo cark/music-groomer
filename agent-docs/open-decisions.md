@@ -24,5 +24,6 @@ decision page.
 
 ## Open questions
 
-No question is currently open. Milestone 3b alignment is complete;
-implementation still requires separate explicit authorization.
+No question is currently open. Milestone 3b is accepted; milestone 4 alignment
+has not begun and still requires the usual one-question-at-a-time discussion
+before implementation.

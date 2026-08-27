@@ -214,3 +214,11 @@ expanded candidate lists also receive a visual break. Keep terminal history and
 avoid screen clearing or decorative divider noise. This is deliberately a
 first visual adjustment to be judged in the real terminal rather than a claim
 that spacing is permanently settled.
+
+## Acceptance
+
+The user accepted milestone 3b on 2026-08-28 after rerunning a loose MP3 from
+the live library read-only. The corrected candidates visibly included original
+1990 single releases, the user selected one, Cover Art Archive supplied its
+front artwork, and the revised phase separation was satisfactory. No source or
+library file was changed.

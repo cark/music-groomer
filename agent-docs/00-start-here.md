@@ -7,12 +7,10 @@ must never modify the selected source.
 ## Current phase
 
 Product and technical direction is aligned through milestone 3b. Milestones 1,
-2, and 3a are implemented, reviewed, verified, and accepted by the user. The
-final milestone 3a real-source terminal exercise confirmed that the visual
-interaction and functionality are satisfactory. Milestone 3b was authorized,
-implemented, and verified on 2026-08-27. Its read-only real-track exercise
-succeeded; an approved interactive progress correction is implemented and
-awaits the user's terminal confirmation before final acceptance.
+2, 3a, and 3b are implemented, reviewed, verified, and accepted by the user.
+The final milestone 3b loose-library-track exercise confirmed the corrected
+single discovery, animated provider feedback, and phase spacing on 2026-08-28.
+Milestone 4 alignment has not begun.
 
 ## Task routing
 
