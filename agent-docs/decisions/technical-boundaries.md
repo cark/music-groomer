@@ -8,6 +8,19 @@ boundaries around tag I/O, providers, terminal interaction, process execution,
 and filesystem application. Add neither a workflow framework nor a broad
 filesystem abstraction mirroring `std::fs`.
 
+## Rust source organization
+
+Keep Rust source files on the smallish side without imposing a rigid line
+limit. A file should usually center on one functionally important struct or
+concept, accompanied by its tightly coupled error type, small enums, helpers,
+and focused tests.
+
+Split fixtures, rendering, or another distinct responsibility when they make a
+file difficult to navigate. Do not mechanically create one file per tiny type:
+cohesion is the goal, not maximum fragmentation. Pragmatic exceptions are
+welcome when separating tightly coupled code would make the flow harder to
+understand.
+
 ## Metadata and providers
 
 Use Lofty for tag access, conditional on fixture tests proving preservation for

@@ -6,8 +6,9 @@ must never modify the selected source.
 
 ## Current phase
 
-Product and technical direction are aligned. The documentation baseline is
-complete; application implementation has not started.
+Product and technical direction are aligned. Milestone 1 is implemented and is
+being refined through the user's guided-interaction review; milestone 2 has not
+been authorized.
 
 ## Read next
 
