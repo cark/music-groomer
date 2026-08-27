@@ -14,10 +14,8 @@ remain. If no release is defensible, keep it albumless rather than fabricate one
 
 ## Identification fallback
 
-For one selected loose track, optionally use `fpcalc` and AcoustID only when
-identifiers, tags, filename, and duration are insufficient. Cache the lookup,
-degrade gracefully when unavailable, never submit fingerprints, and do not
-routinely fingerprint album tracks.
+The accepted fingerprinting, provider, cache, matching, and presentation policy
+is recorded in [Milestone 3b loose-track identification](milestone-3b-identification.md).
 
 ## Existing metadata fallback
 

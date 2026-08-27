@@ -18,6 +18,8 @@ This page tracks implementation. Durable product reasoning belongs in the
   and verified on 2026-08-27. The user completed the final read-only Evolution
   terminal exercise and accepted milestone 3a's functionality and revised
   visual presentation.
+- Milestone 3b product and technical alignment completed on 2026-08-27;
+  implementation has not yet been authorized.
 
 ## Working rules
 
@@ -178,7 +180,7 @@ set is implemented and recorded in
 
 ## Milestone 3b: difficult loose-track identification
 
-Status: pending
+Status: aligned; awaiting explicit implementation authorization
 
 Add the optional `fpcalc` and AcoustID fallback for one poorly identified loose
 track only after milestone 3a proves the normal provider-backed workflow.
@@ -186,8 +188,33 @@ track only after milestone 3a proves the normal provider-backed workflow.
 Acceptance:
 
 - AcoustID is lookup-only, optional, cached, and never used routinely on albums.
+- music-groomer uses its own registered AcoustID application identity; users do
+  not need an account or personal API-key configuration.
+- AcoustID registration was completed on 2026-08-27 without a confidentiality
+  restriction; the project application key is available for implementation.
+- The inexpensive local fingerprint plus duration identifies a bounded
+  AcoustID cache entry; no whole-file digest, audio, or separately cached
+  fingerprint is retained.
+- MusicBrainz and AcoustID each receive a cumulative 30-second transient-failure
+  recovery budget rather than competing for one sequential deadline.
+- `fpcalc` uses its standard 120-second audio window in one visible attempt,
+  with a hard 60-second process timeout and no automatic local retry.
+- The Nix development shell provides the separate reference `fpcalc` helper;
+  missing tooling outside a packaged environment degrades visibly.
+- AcoustID results below `0.80` are unusable; automatic acceptance requires a
+  unique, compatible, non-conflicting recording result at `0.90` or above.
+- Duplicate recording associations collapse before at most five qualifying
+  distinct recordings are resolved through MusicBrainz; broader ambiguity is
+  warned about visibly.
+- Existing cache status, override, pruning, and confirmed-clear behavior covers
+  AcoustID results without separate commands.
+- The fallback runs automatically in the same guided loose-track interaction
+  and reports local fingerprinting and provider progress as visibly as the
+  existing MusicBrainz workflow.
 - Fingerprinting and provider behavior remain behind narrow process and provider
   boundaries and have deterministic fake-backed tests.
+- Acceptance includes a separately approved read-only guided exercise with one
+  real standalone track; it performs no Apply or library write.
 
 ## Milestone 4: safe apply and validation
 

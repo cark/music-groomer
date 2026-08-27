@@ -86,6 +86,10 @@ not add or change a specific release ID, even if a representative edition
 supplies metadata; preserve an existing release ID unchanged. Show identifiers
 only in expanded preview details during the ordinary guided workflow.
 
+AcoustID is identification evidence rather than groomed metadata. Do not add an
+AcoustID identifier or fingerprint to audio tags in v0.1; preserve any such
+source tags that already exist.
+
 ## Accepted standalone-track behavior
 
 When a loose track is confidently identified, associate it with a real release

@@ -6,10 +6,11 @@ must never modify the selected source.
 
 ## Current phase
 
-Product and technical direction is aligned through milestone 3a. Milestones 1,
+Product and technical direction is aligned through milestone 3b. Milestones 1,
 2, and 3a are implemented, reviewed, verified, and accepted by the user. The
 final milestone 3a real-source terminal exercise confirmed that the visual
-interaction and functionality are satisfactory. Milestone 3b remains pending.
+interaction and functionality are satisfactory. Milestone 3b is aligned and
+awaits separate implementation authorization.
 
 ## Task routing
 
@@ -31,6 +32,8 @@ milestone. Then load only the pages relevant to the task:
   [Milestone 3a real-world polish](decisions/milestone-3a-real-world-polish.md).
 - Standalone tracks or deferred features:
   [standalone tracks and scope](decisions/standalone-tracks-and-scope.md).
+- Milestone 3b fingerprinting and AcoustID behavior:
+  [loose-track identification](decisions/milestone-3b-identification.md).
 
 Before changing accepted behavior, check the decision index for an existing
 decision or deferral. Do not load unrelated pages merely because they exist.

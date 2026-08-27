@@ -10,6 +10,7 @@ Detailed decisions are grouped into small pages:
 - [Source inspection](decisions/source-inspection.md)
 - [Files, tags, and artwork](decisions/files-tags-artwork.md)
 - [Standalone tracks and scope](decisions/standalone-tracks-and-scope.md)
+- [Milestone 3b loose-track identification](decisions/milestone-3b-identification.md)
 - [Technical boundaries](decisions/technical-boundaries.md)
 - [Milestone 3a review corrections](decisions/milestone-3a-review.md)
 - [Milestone 3a real-world polish](decisions/milestone-3a-real-world-polish.md)
@@ -23,5 +24,5 @@ decision page.
 
 ## Open questions
 
-No question is currently open. Milestone 3b remains pending and requires its
-own alignment before implementation.
+No question is currently open. Milestone 3b alignment is complete;
+implementation still requires separate explicit authorization.

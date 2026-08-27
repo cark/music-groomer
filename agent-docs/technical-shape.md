@@ -95,6 +95,13 @@ do not produce sufficient confidence. Keep this optional and behind narrow
 process and provider boundaries. Do not fingerprint albums routinely and do not
 submit fingerprints to AcoustID.
 
+Invoke the mature reference `fpcalc` executable rather than introducing an
+in-process decoder and Chromaprint implementation. Provide it in the repository
+development shell; future packages should supply it as a separate runtime
+helper. Missing tooling degrades visibly without blocking ordinary matching.
+Binary distributors must audit and satisfy the exact helper artifact's license
+obligations; music-groomer remains MIT-licensed.
+
 Provider matching must not be fused with first-time ingestion. The same core
 inspection and planning operations should be able to reconsider a previously
 groomed album or standalone track later, while keeping playlist-wide and
@@ -129,13 +136,16 @@ without routine redownloads. A confirmed absence of front artwork is fresh for
 bypasses freshness, and a corrupt entry behaves as a cache miss. Do not expose
 freshness as configuration until real use demonstrates a need.
 
-Transient provider failures retry sequentially for at most 60 seconds total.
-Announce the retry window and every delay, honor a reasonable provider
-`Retry-After`, and enforce hard connection and response timeouts. Do not install
-a custom `Ctrl-C` handler in milestone 3a: the operating system's ordinary
-interrupt must always terminate the program, so a workflow bug cannot hold the
-user's terminal. Reaching the retry deadline returns to available cache or
-local-metadata fallbacks.
+MusicBrainz and AcoustID failures retry sequentially with a separate cumulative
+30-second recovery budget for each provider during identification. Successful
+requests and required MusicBrainz rate-limit spacing do not consume these
+failure budgets. This Milestone 3b decision does not silently alter Cover Art
+Archive behavior. Announce the retry window and every delay, honor a reasonable
+provider `Retry-After`, and enforce hard connection and response timeouts. Do
+not install a custom `Ctrl-C` handler: the operating system's ordinary interrupt
+must always terminate the program, so a workflow bug cannot hold the user's
+terminal. Reaching a provider's retry deadline returns to available cache or
+local-metadata fallbacks without consuming the other provider's budget.
 
 Refresh is transactional: retain the old response and active preview until a
 replacement has been fetched and parsed successfully, then atomically replace
