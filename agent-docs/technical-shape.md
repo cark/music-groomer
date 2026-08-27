@@ -145,6 +145,12 @@ temporary-directory cleanup. A missing or empty directory can become a marked
 music-groomer cache; a non-empty unmarked directory must never be claimed or
 cleared.
 
+The executable uses Clap only as its command-line boundary. Users get
+conventional `-h`/`--help`, command-specific help, `-V`/`--version`, validation,
+and automatic terminal-aware help/error styling. The primary command remains
+`music-groomer SOURCE`; the implementation-facing `demo` command is hidden from
+normal help.
+
 ## Apply transaction
 
 1. Refuse existing final and partial destinations.

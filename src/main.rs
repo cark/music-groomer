@@ -1,8 +1,8 @@
-use std::env;
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use clap::{CommandFactory, Parser};
 use music_groomer::artwork_viewer::SystemArtworkViewer;
 use music_groomer::config::AppConfig;
 use music_groomer::demo::{self, DemoScenario};
@@ -15,6 +15,10 @@ use music_groomer::provider::{
 use music_groomer::source::SourceInspector;
 use music_groomer::terminal::StdioInteraction;
 
+mod cli;
+
+use cli::{CacheAction, Cli, CliCommand};
+
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -26,87 +30,35 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), String> {
-    let (arguments, cache_directory) = parse_global_options(env::args().skip(1))?;
-    let mut arguments = arguments.into_iter();
-    let Some(command) = arguments.next() else {
-        print_help();
-        return Ok(());
-    };
-    if matches!(command.as_str(), "-h" | "--help" | "help") {
-        print_help();
-        return Ok(());
-    }
-    if command == "demo" {
-        if cache_directory.is_some() {
-            return Err("--cache-dir does not apply to the simulated demo".to_owned());
-        }
-        return run_demo(arguments);
-    }
-    if command == "cache" {
-        return run_cache(arguments, cache_directory);
-    }
-    let (source, offline) = parse_source(command, arguments)?;
-    run_inspection(source, offline, cache_directory)
-}
-
-fn parse_global_options(
-    arguments: impl Iterator<Item = String>,
-) -> Result<(Vec<String>, Option<PathBuf>), String> {
-    let mut remaining = Vec::new();
-    let mut cache_directory = None;
-    let mut arguments = arguments.peekable();
-    while let Some(argument) = arguments.next() {
-        if argument == "--cache-dir" {
+    let arguments = Cli::parse();
+    let cache_directory = arguments.cache_dir;
+    match arguments.command {
+        Some(CliCommand::Demo { scenario, output }) => {
             if cache_directory.is_some() {
-                return Err("--cache-dir may be specified only once".to_owned());
+                return Err("--cache-dir does not apply to the simulated demo".to_owned());
             }
-            let path = arguments
-                .next()
-                .ok_or_else(|| "--cache-dir needs a directory".to_owned())?;
-            cache_directory = Some(PathBuf::from(path));
-        } else {
-            remaining.push(argument);
+            run_demo(scenario.map(|value| value.name()), output)
         }
+        Some(CliCommand::Cache { action }) => run_cache(action, cache_directory),
+        None => match arguments.source {
+            Some(source) => run_inspection(source, arguments.offline, cache_directory),
+            None => {
+                Cli::command()
+                    .print_help()
+                    .map_err(|error| error.to_string())?;
+                println!();
+                Ok(())
+            }
+        },
     }
-    Ok((remaining, cache_directory))
 }
 
-fn parse_source(
-    first: String,
-    mut arguments: impl Iterator<Item = String>,
-) -> Result<(PathBuf, bool), String> {
-    let mut offline = false;
-    let mut source = None;
-    for argument in std::iter::once(first).chain(arguments.by_ref()) {
-        if argument == "--offline" {
-            offline = true;
-        } else if source.is_none() {
-            source = Some(PathBuf::from(argument));
-        } else {
-            return Err(format!("unexpected argument `{argument}` after SOURCE"));
-        }
-    }
-    source
-        .map(|source| (source, offline))
-        .ok_or_else(|| "--offline needs a SOURCE".to_owned())
-}
-
-fn run_cache(
-    mut arguments: impl Iterator<Item = String>,
-    cache_directory: Option<PathBuf>,
-) -> Result<(), String> {
-    let action = arguments.next();
-    if let Some(extra) = arguments.next() {
-        return Err(format!("unexpected cache argument `{extra}`"));
-    }
+fn run_cache(action: Option<CacheAction>, cache_directory: Option<PathBuf>) -> Result<(), String> {
     let config = AppConfig::load().map_err(|error| error.to_string())?;
     let cache = provider_cache(&config, cache_directory)?;
-    match action.as_deref() {
-        None | Some("status") => show_cache_status(&cache),
-        Some("clear") => clear_cache(&cache),
-        Some(other) => Err(format!(
-            "unknown cache action `{other}`; use `cache` or `cache clear`"
-        )),
+    match action {
+        None | Some(CacheAction::Status) => show_cache_status(&cache),
+        Some(CacheAction::Clear) => clear_cache(&cache),
     }
 }
 
@@ -169,29 +121,13 @@ fn byte_count(bytes: u64) -> String {
     }
 }
 
-fn run_demo(mut arguments: impl Iterator<Item = String>) -> Result<(), String> {
-    let mut scenario = None;
-    let mut output = None;
-    while let Some(argument) = arguments.next() {
-        if argument == "--output" {
-            let value = arguments
-                .next()
-                .ok_or_else(|| "--output needs a directory".to_owned())?;
-            output = Some(PathBuf::from(value));
-        } else if scenario.is_none() {
-            scenario = Some(DemoScenario::parse(&argument).ok_or_else(|| {
-                format!(
-                    "unknown demo `{argument}`; use confident, ambiguous, matched-single, or standalone"
-                )
-            })?);
-        } else {
-            return Err(format!("unexpected argument `{argument}`"));
-        }
-    }
-
+fn run_demo(scenario: Option<&str>, output: Option<PathBuf>) -> Result<(), String> {
+    let scenario = scenario.map(|value| {
+        DemoScenario::parse(value).expect("Clap accepts only supported demo scenario names")
+    });
     let stdin = io::stdin();
     let stdout = io::stdout();
-    let styling = stdout.is_terminal() && env::var_os("NO_COLOR").is_none();
+    let styling = stdout.is_terminal() && std::env::var_os("NO_COLOR").is_none();
     let mut interaction = StdioInteraction::new(stdin.lock(), stdout.lock(), styling);
     demo::run(&mut interaction, scenario, output.as_deref())
         .map(|_| ())
@@ -208,7 +144,7 @@ fn run_inspection(
         .map_err(|error| error.to_string())?;
     let stdin = io::stdin();
     let stdout = io::stdout();
-    let styling = stdout.is_terminal() && env::var_os("NO_COLOR").is_none();
+    let styling = stdout.is_terminal() && std::env::var_os("NO_COLOR").is_none();
     let mut interaction = StdioInteraction::new(stdin.lock(), stdout.lock(), styling);
     if inspection.is_blocked() {
         inspection_ui::run(&mut interaction, &inspection)
@@ -254,29 +190,4 @@ fn provider_cache(
         Some(directory) => Ok(ProviderCache::new(directory, max_bytes)),
         None => ProviderCache::platform_default(Some(max_bytes)).map_err(|error| error.to_string()),
     }
-}
-
-fn print_help() {
-    println!("music-groomer 0.1.0 (pre-alpha, through milestone 3a)");
-    println!();
-    println!("Inspect one album directory or loose audio file without changing it:");
-    println!();
-    println!("  music-groomer [--offline] SOURCE");
-    println!("  music-groomer --cache-dir DIRECTORY [--offline] SOURCE");
-    println!();
-    println!("Provider cache maintenance:");
-    println!();
-    println!("  music-groomer cache");
-    println!("  music-groomer cache clear");
-    println!("  music-groomer --cache-dir DIRECTORY cache [clear]");
-    println!();
-    println!("Destination access and Apply are not implemented yet.");
-    println!();
-    println!("The Milestone 1 simulation remains available with:");
-    println!();
-    println!("  music-groomer demo [SCENARIO] [--output DIRECTORY]");
-    println!();
-    println!("Omit SCENARIO to choose within the guided session.");
-    println!("The destination can also be changed inside the preview.");
-    println!("Any --output directory must already exist.");
 }

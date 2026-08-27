@@ -73,6 +73,14 @@ Apply the override uniformly to grooming and every cache command. Refuse to
 claim or clear a non-empty directory without music-groomer's ownership marker;
 the test harness remains responsible for its temporary directory's lifecycle.
 
+## Command-line boundary
+
+Use Clap at the executable boundary for familiar help, version, subcommand,
+validation, and error behavior. Keep Clap types out of the core workflow.
+`music-groomer SOURCE` remains the primary guided form; `cache` is a visible
+maintenance subcommand whose default action is read-only status. Keep the
+milestone-only `demo` command available but hidden from ordinary help.
+
 ## Apply and cleanup
 
 Build and validate in the operating system's temporary directory after a space

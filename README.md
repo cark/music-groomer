@@ -41,6 +41,10 @@ provider cache, and asks only when a match is genuinely ambiguous. Use
 `--offline` before or after `SOURCE` to guarantee that no provider is contacted.
 Destination access and Apply remain later milestones.
 
+Run `music-groomer --help` for the primary workflow and global options, or
+`music-groomer cache --help` for cache maintenance. The interface supports the
+usual `-h`/`--help` and `-V`/`--version` forms.
+
 Provider-cache status is read-only. Clearing shows the exact owned path and
 requires confirmation:
 
