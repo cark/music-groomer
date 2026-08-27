@@ -8,7 +8,8 @@ must never modify the selected source.
 
 Product and technical direction are aligned through milestone 2. Milestone 1
 and milestone 2 are implemented, verified, reviewed, and accepted. Milestone 3
-remains pending and is not authorized by that acceptance.
+is split into 3a and 3b. Milestone 3a is aligned but awaits explicit
+implementation authorization; milestone 3b remains pending.
 
 ## Task routing
 

@@ -61,6 +61,24 @@ the complete inventory. It does not contact providers, inspect the destination,
 or offer Apply yet. This is the beginning of the final guided interaction, not
 a disposable diagnostic subcommand.
 
+Milestone 3a adds automatic MusicBrainz matching after successful inspection.
+Announce network work and cache hits clearly. Automatically continue on a clear
+match; show at most three materially distinct choices initially, with actions to
+show more, use coherent existing metadata as unverified, or cancel. Keep all
+usable candidates in structured data for a future machine interface.
+
+Offer `Refresh provider data` inside the same review session. A failed refresh
+keeps the old cache and preview. If a successful refresh would materially alter
+the chosen result, leave the current preview unchanged until the user accepts
+the refreshed choice. Fetch archive artwork only after the metadata match is
+settled.
+
+`music-groomer --offline SOURCE` never contacts a provider and uses cache or
+coherent source metadata with visible stale or unverified status. Keep cache
+maintenance outside the grooming session: `music-groomer cache` reports concise
+read-only status, while `music-groomer cache clear` shows the owned cache path
+and size and confirms before deletion.
+
 When added later, a machine-facing mode should use stable structured output and
 keep progress or diagnostics separate from result data. It must never depend on
 an interactive confirmation; applying from that mode will require an explicit

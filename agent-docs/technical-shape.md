@@ -74,6 +74,13 @@ release-group 1200-pixel front rather than choosing an edition-specific scan.
 A provider match without usable source or archive artwork remains valid with a
 prominent warning.
 
+Use direct synchronous HTTP through `ureq` for both providers. Do not add an
+async runtime or a MusicBrainz-specific client when caching, retry behavior, and
+Cover Art Archive access already require a small application-owned adapter. Do
+not invent a general HTTP trait; fake the narrow metadata and artwork provider
+boundaries in core tests. Identify requests as
+`music-groomer/<version> (https://github.com/cark/music-groomer)`.
+
 For one explicitly selected loose track, v0.1 may use `fpcalc` and an AcoustID
 lookup only when MusicBrainz identifiers, existing tags, filename, and duration
 do not produce sufficient confidence. Keep this optional and behind narrow
@@ -116,6 +123,18 @@ a custom `Ctrl-C` handler in milestone 3a: the operating system's ordinary
 interrupt must always terminate the program, so a workflow bug cannot hold the
 user's terminal. Reaching the retry deadline returns to available cache or
 local-metadata fallbacks.
+
+Refresh is transactional: retain the old response and active preview until a
+replacement has been fetched and parsed successfully, then atomically replace
+the cache entry. A valid refreshed response may enter the cache without
+silently replacing a materially different active match. Offline mode performs
+no network requests and may use stale cache entries with clear status.
+
+`music-groomer cache` reports cache location, total usage and limit, metadata
+fresh/stale counts, artwork count and size, and damaged-entry count without
+mutating anything. `music-groomer cache clear` confirms before deleting only
+music-groomer's cache. Automatic pruning occurs on writes, never merely because
+status was requested.
 
 ## Apply transaction
 

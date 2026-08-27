@@ -21,5 +21,5 @@ decision page.
 
 ## Open questions
 
-None currently recorded. Milestone 2 is reviewed and accepted; this does not
-authorize milestone 3.
+None currently recorded. Milestone 3a is aligned but awaits explicit
+implementation authorization. Milestone 3b remains pending.

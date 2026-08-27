@@ -11,6 +11,8 @@ This page tracks implementation. Durable product reasoning belongs in the
   2026-08-27.
 - Milestone 2 was authorized, implemented, reviewed, and accepted on
   2026-08-27.
+- Milestone 3a product and technical alignment completed on 2026-08-27;
+  implementation awaits explicit authorization.
 
 ## Working rules
 
@@ -120,7 +122,7 @@ behaviors are covered by temporary-directory and format-specific tests.
 
 ## Milestone 3a: providers, cache, and real matching
 
-Status: pending
+Status: aligned, awaiting implementation authorization
 
 Integrate MusicBrainz and Cover Art Archive behind narrow adapters. Add the
 bounded file cache. Keep `fpcalc` and AcoustID out of this milestone so the
@@ -138,6 +140,8 @@ Acceptance:
   data remains a visible fallback when refresh fails.
 - Transient failures retry visibly within a hard 60-second total deadline;
   bounded requests cannot weaken ordinary unconditional `Ctrl-C` termination.
+- Guided refresh is transactional, offline mode makes no network requests, and
+  cache status and confirmed clearing touch only music-groomer's bounded cache.
 - Core provider tests are fully offline and use fakes. A separate explicitly
   invoked smoke test makes a tiny live query without real music or library paths.
 
