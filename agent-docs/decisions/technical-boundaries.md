@@ -45,6 +45,12 @@ successful results.
 Keep MusicBrainz behind a narrow adapter. A small implementation evaluation may
 choose a Rust client crate or direct HTTP without changing core behavior.
 
+Keep milestone 3a provider work sequential. Visible retries have a hard
+60-second total deadline and bounded requests. Leave `Ctrl-C` under the
+operating system's normal unconditional termination behavior rather than
+installing a cancellation handler. Apply interruption is a separate milestone
+4 safety decision.
+
 ## Matching
 
 Use deterministic evidence ordered by reliability: existing MusicBrainz IDs;

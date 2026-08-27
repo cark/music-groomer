@@ -109,6 +109,14 @@ without routine redownloads. Explicit refresh bypasses freshness, and a corrupt
 entry behaves as a cache miss. Do not expose freshness as configuration until
 real use demonstrates a need.
 
+Transient provider failures retry sequentially for at most 60 seconds total.
+Announce the retry window and every delay, honor a reasonable provider
+`Retry-After`, and enforce hard connection and response timeouts. Do not install
+a custom `Ctrl-C` handler in milestone 3a: the operating system's ordinary
+interrupt must always terminate the program, so a workflow bug cannot hold the
+user's terminal. Reaching the retry deadline returns to available cache or
+local-metadata fallbacks.
+
 ## Apply transaction
 
 1. Refuse existing final and partial destinations.

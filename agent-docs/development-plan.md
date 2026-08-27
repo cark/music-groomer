@@ -136,6 +136,8 @@ Acceptance:
   clearable, and pruned under the configurable 256 MiB default limit.
 - A fresh 30-day metadata cache entry completely bypasses the provider; stale
   data remains a visible fallback when refresh fails.
+- Transient failures retry visibly within a hard 60-second total deadline;
+  bounded requests cannot weaken ordinary unconditional `Ctrl-C` termination.
 - Core provider tests are fully offline and use fakes. A separate explicitly
   invoked smoke test makes a tiny live query without real music or library paths.
 
