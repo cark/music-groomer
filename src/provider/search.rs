@@ -10,6 +10,8 @@ pub struct ProviderSearch {
     pub kind: SourceKind,
     pub album: Option<String>,
     pub artist: Option<String>,
+    pub artist_ids: Vec<String>,
+    pub album_artist_ids: Vec<String>,
     pub title: Option<String>,
     pub release_group_id: Option<String>,
     pub recording_ids: Vec<String>,
@@ -29,7 +31,13 @@ pub trait MetadataProvider {
         &mut self,
         search: &ProviderSearch,
         progress: &mut dyn ProviderProgress,
-    ) -> Result<Vec<CandidateRelease>, ProviderError>;
+    ) -> Result<ProviderSearchResult, ProviderError>;
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProviderSearchResult {
+    pub candidates: Vec<CandidateRelease>,
+    pub warnings: Vec<String>,
 }
 
 pub trait ProviderProgress {
@@ -119,6 +127,8 @@ pub fn source_inspection(source: &SourceInspection) -> (Inspection, ProviderSear
         artist: common(&inspection, |track| {
             track.album_artist.as_deref().or(track.artist.as_deref())
         }),
+        artist_ids: common_ids(&inspection, |track| &track.artist_ids),
+        album_artist_ids: common_ids(&inspection, |track| &track.album_artist_ids),
         title: (source.kind == SourceKind::LooseFile)
             .then(|| inspection.tracks.first()?.title.clone())
             .flatten(),
@@ -131,6 +141,20 @@ pub fn source_inspection(source: &SourceInspection) -> (Inspection, ProviderSear
         track_count: inspection.tracks.len(),
     };
     (inspection, search)
+}
+
+fn common_ids(
+    inspection: &Inspection,
+    value: impl Fn(&InspectedTrack) -> &[String],
+) -> Vec<String> {
+    let Some(first) = inspection.tracks.first().map(&value) else {
+        return Vec::new();
+    };
+    if inspection.tracks.iter().all(|track| value(track) == first) {
+        first.to_vec()
+    } else {
+        Vec::new()
+    }
 }
 
 fn position(tags: &AudioTags) -> Option<Position> {

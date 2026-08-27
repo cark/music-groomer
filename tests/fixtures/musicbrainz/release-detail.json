@@ -1,5 +1,6 @@
 {
   "id": "release-1",
+  "status": "Official",
   "title": "Later Edition Title",
   "artist-credit": [
     {"name": "Alice", "joinphrase": " with ", "artist": {"id": "artist-1", "name": "Alice"}},
@@ -8,6 +9,10 @@
   "release-group": {
     "id": "group-1",
     "title": "Original Album Title",
+    "artist-credit": [
+      {"name": "Alice", "joinphrase": " with ", "artist": {"id": "artist-1", "name": "Alice"}},
+      {"name": "Bob", "joinphrase": "", "artist": {"id": "artist-2", "name": "Bob"}}
+    ],
     "first-release-date": "1974-03-02",
     "primary-type": "Album",
     "secondary-types": []
@@ -16,7 +21,12 @@
     "position": 1,
     "tracks": [{
       "position": 1,
+      "title": "Opening (release version)",
       "length": 180000,
+      "artist-credit": [
+        {"name": "Alice", "joinphrase": " feat. ", "artist": {"id": "artist-1", "name": "Alice"}},
+        {"name": "Bob", "joinphrase": "", "artist": {"id": "artist-2", "name": "Bob"}}
+      ],
       "recording": {
         "id": "recording-1",
         "title": "Opening",

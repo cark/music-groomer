@@ -218,7 +218,7 @@ fn select_metadata(
     data: &DemoData,
 ) -> Result<MetadataSelection, DemoError> {
     match MatchPolicy::default().decide(&data.inspection, data.candidates.clone()) {
-        MatchDecision::Selected(selected) => {
+        MatchDecision::Selected { selected, .. } => {
             let label = interaction.styled(TextStyle::Value, &selected.candidate.human_label());
             interaction.show(&format!("Matched automatically: {label}"))?;
             for reason in selected.reasons.iter().take(3) {

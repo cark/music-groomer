@@ -12,7 +12,7 @@ use super::{DEFAULT_CACHE_MAX_BYTES, METADATA_FRESH_DAYS, ProviderSearch};
 use super::{ProviderArtwork, cover_art_archive};
 use crate::domain::CandidateRelease;
 
-const CACHE_SCHEMA: u8 = 1;
+const CACHE_SCHEMA: u8 = 2;
 const MARKER: &str = ".music-groomer-cache";
 static WRITE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -104,7 +104,11 @@ impl ProviderCache {
         Ok(())
     }
 
-    pub fn artwork(&self, release_group_id: &str) -> Result<Option<ArtworkCacheEntry>, CacheError> {
+    pub fn artwork(
+        &self,
+        release_group_id: &str,
+        now: SystemTime,
+    ) -> Result<Option<ArtworkCacheEntry>, CacheError> {
         let prefix = format!("{}.", digest(release_group_id.as_bytes()));
         let Some(path) = regular_files(&self.root.join("artwork"))?
             .into_iter()
@@ -117,9 +121,22 @@ impl ProviderCache {
             return Ok(None);
         };
         let bytes = fs::read(&path).map_err(|error| CacheError::Io(path.clone(), error))?;
+        if path.extension().and_then(|extension| extension.to_str()) == Some("json") {
+            let stored: StoredArtworkAbsence = serde_json::from_slice(&bytes)
+                .map_err(|error| CacheError::Damaged(path.clone(), error.to_string()))?;
+            if stored.schema != CACHE_SCHEMA {
+                return Err(CacheError::Damaged(
+                    path,
+                    format!("unsupported cache schema {}", stored.schema),
+                ));
+            }
+            let fetched_at = UNIX_EPOCH + Duration::from_secs(stored.fetched_at);
+            let freshness = freshness(fetched_at, now);
+            return Ok(Some(ArtworkCacheEntry::ConfirmedAbsent { freshness }));
+        }
         let artwork = cover_art_archive::decode(bytes)
             .map_err(|error| CacheError::Damaged(path.clone(), error.to_string()))?;
-        Ok(Some(ArtworkCacheEntry { artwork }))
+        Ok(Some(ArtworkCacheEntry::Image(artwork)))
     }
 
     pub fn store_artwork(
@@ -146,6 +163,27 @@ impl ProviderCache {
                     .map_err(|error| CacheError::Io(previous.clone(), error))?;
             }
         }
+        self.prune()
+    }
+
+    pub fn store_artwork_absence(
+        &self,
+        release_group_id: &str,
+        now: SystemTime,
+    ) -> Result<(), CacheError> {
+        self.ensure_owned_root()?;
+        let path = self
+            .root
+            .join("artwork")
+            .join(format!("{}.none.json", digest(release_group_id.as_bytes())));
+        self.write_json_atomic(
+            &path,
+            &StoredArtworkAbsence {
+                schema: CACHE_SCHEMA,
+                fetched_at: unix_seconds(now),
+            },
+        )?;
+        self.remove_other_artwork_entries(release_group_id, &path)?;
         self.prune()
     }
 
@@ -188,7 +226,14 @@ impl ProviderCache {
                 }
             };
             status.total_bytes = status.total_bytes.saturating_add(bytes.len() as u64);
-            if cover_art_archive::decode(bytes.clone()).is_ok() {
+            if path.extension().and_then(|extension| extension.to_str()) == Some("json") {
+                match serde_json::from_slice::<StoredArtworkAbsence>(&bytes) {
+                    Ok(entry) if entry.schema == CACHE_SCHEMA => {
+                        status.confirmed_artwork_absences += 1;
+                    }
+                    _ => status.damaged_entries += 1,
+                }
+            } else if cover_art_archive::decode(bytes.clone()).is_ok() {
                 status.artwork_entries += 1;
                 status.artwork_bytes = status.artwork_bytes.saturating_add(bytes.len() as u64);
             } else {
@@ -238,6 +283,25 @@ impl ProviderCache {
             }
             fs::write(&marker, "music-groomer provider cache\n")
                 .map_err(|error| CacheError::Io(marker, error))?;
+        }
+        Ok(())
+    }
+
+    fn remove_other_artwork_entries(
+        &self,
+        release_group_id: &str,
+        keep: &Path,
+    ) -> Result<(), CacheError> {
+        let prefix = format!("{}.", digest(release_group_id.as_bytes()));
+        for previous in regular_files(&self.root.join("artwork"))? {
+            let same_key = previous
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(&prefix));
+            if same_key && previous != keep {
+                fs::remove_file(&previous)
+                    .map_err(|error| CacheError::Io(previous.clone(), error))?;
+            }
         }
         Ok(())
     }
@@ -332,8 +396,9 @@ pub struct MetadataCacheEntry {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ArtworkCacheEntry {
-    pub artwork: ProviderArtwork,
+pub enum ArtworkCacheEntry {
+    Image(ProviderArtwork),
+    ConfirmedAbsent { freshness: MetadataFreshness },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -351,6 +416,7 @@ pub struct CacheStatus {
     pub stale_metadata: usize,
     pub artwork_entries: usize,
     pub artwork_bytes: u64,
+    pub confirmed_artwork_absences: usize,
     pub damaged_entries: usize,
 }
 
@@ -375,7 +441,7 @@ impl fmt::Display for CacheError {
             }
             Self::NotOwned(path) => write!(
                 formatter,
-                "refusing to clear unmarked cache directory {}",
+                "refusing to use unmarked non-empty cache directory {}",
                 path.display()
             ),
             Self::Serialize(error) => write!(formatter, "cannot encode cache entry: {error}"),
@@ -391,6 +457,22 @@ struct StoredMetadata {
     fetched_at: u64,
     accessed_at: u64,
     candidates: Vec<CandidateRelease>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredArtworkAbsence {
+    schema: u8,
+    fetched_at: u64,
+}
+
+fn freshness(fetched_at: SystemTime, now: SystemTime) -> MetadataFreshness {
+    if now.duration_since(fetched_at).unwrap_or_default()
+        <= Duration::from_secs(METADATA_FRESH_DAYS * 24 * 60 * 60)
+    {
+        MetadataFreshness::Fresh
+    } else {
+        MetadataFreshness::Stale
+    }
 }
 
 fn regular_files(directory: &Path) -> Result<Vec<PathBuf>, CacheError> {

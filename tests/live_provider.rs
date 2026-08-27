@@ -10,6 +10,8 @@ fn musicbrainz_returns_a_small_real_search_result() {
         kind: SourceKind::AlbumDirectory,
         album: Some("Evolution".into()),
         artist: Some("Ten Years After".into()),
+        artist_ids: Vec::new(),
+        album_artist_ids: Vec::new(),
         title: None,
         release_group_id: None,
         recording_ids: Vec::new(),
@@ -22,6 +24,7 @@ fn musicbrainz_returns_a_small_real_search_result() {
 
     assert!(
         candidates
+            .candidates
             .iter()
             .any(|candidate| candidate.title.eq_ignore_ascii_case("Evolution")),
         "expected an Evolution release candidate"

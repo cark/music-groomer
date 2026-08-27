@@ -18,7 +18,7 @@ pub fn choose(
     decision: MatchDecision,
 ) -> io::Result<MetadataSelection> {
     match decision {
-        MatchDecision::Selected(selected) => {
+        MatchDecision::Selected { selected, .. } => {
             interaction.show(&format!(
                 "\n{} {}",
                 interaction.styled(TextStyle::Success, "Clear metadata match:"),
@@ -44,17 +44,12 @@ fn choose_candidate(
     ))?;
     let mut shown = candidates.len().min(3);
     loop {
-        for (index, candidate) in candidates.iter().take(shown).enumerate() {
-            interaction.show(&format!(
-                "  {}. {}",
-                index + 1,
-                candidate.candidate.human_label()
-            ))?;
-        }
+        show_candidates(interaction, &candidates, shown)?;
         let mut actions = vec!["a number".to_owned()];
         if shown < candidates.len() {
             actions.push("[m] Show more".into());
         }
+        actions.push("[t] Track-list details".into());
         if coherent_existing_metadata(inspection).is_ok() {
             actions.push("[e] Use existing tags (unverified)".into());
         }
@@ -69,6 +64,7 @@ fn choose_candidate(
         }
         match answer.to_ascii_lowercase().as_str() {
             "m" | "more" if shown < candidates.len() => shown = candidates.len(),
+            "t" | "tracks" | "details" => show_track_lists(interaction, &candidates[..shown])?,
             "e" | "existing" if coherent_existing_metadata(inspection).is_ok() => {
                 return Ok(MetadataSelection::ExistingTags);
             }
@@ -76,6 +72,118 @@ fn choose_candidate(
             _ => interaction.show("Please choose one of the displayed actions.")?,
         }
     }
+}
+
+pub fn revise(
+    interaction: &mut impl Interaction,
+    inspection: &Inspection,
+    candidates: &[RankedCandidate],
+    current: &MetadataSelection,
+) -> io::Result<MetadataSelection> {
+    interaction.show("\nMetadata selection:")?;
+    match current {
+        MetadataSelection::Provider(selected) => {
+            interaction.show(&format!("  Current: {}", selected.candidate.human_label()))?;
+            interaction.show("  Evidence:")?;
+            for reason in &selected.reasons {
+                interaction.show(&format!("    - {}", reason.summary))?;
+            }
+            interaction.show(&format!(
+                "  MusicBrainz release group: {}",
+                selected
+                    .candidate
+                    .release_group_id
+                    .as_deref()
+                    .unwrap_or("unknown")
+            ))?;
+        }
+        MetadataSelection::ExistingTags => {
+            interaction.show("  Current: existing source tags (unverified)")?
+        }
+        MetadataSelection::Cancelled => return Ok(current.clone()),
+    }
+    if candidates.is_empty() {
+        interaction.show("  No usable provider alternatives are available.")?;
+    } else {
+        show_candidates(interaction, candidates, candidates.len())?;
+    }
+    loop {
+        let existing = if coherent_existing_metadata(inspection).is_ok() {
+            "  [e] Existing tags"
+        } else {
+            ""
+        };
+        let answer = interaction.ask(&format!(
+            "Choose a number to change, [t] Track-list details{existing}  [b] Back: "
+        ))?;
+        if let Ok(index) = answer.parse::<usize>()
+            && (1..=candidates.len()).contains(&index)
+        {
+            return Ok(MetadataSelection::Provider(Box::new(
+                candidates[index - 1].clone(),
+            )));
+        }
+        match answer.to_ascii_lowercase().as_str() {
+            "t" | "tracks" | "details" => show_track_lists(interaction, candidates)?,
+            "e" | "existing" if coherent_existing_metadata(inspection).is_ok() => {
+                return Ok(MetadataSelection::ExistingTags);
+            }
+            "" | "b" | "back" => return Ok(current.clone()),
+            _ => interaction.show("Please choose a displayed metadata action.")?,
+        }
+    }
+}
+
+fn show_candidates(
+    interaction: &mut impl Interaction,
+    candidates: &[RankedCandidate],
+    shown: usize,
+) -> io::Result<()> {
+    for (index, candidate) in candidates.iter().take(shown).enumerate() {
+        interaction.show(&format!(
+            "  {}. {}",
+            index + 1,
+            candidate.candidate.human_label()
+        ))?;
+        interaction.show(&format!("     {}", track_list_summary(candidate)))?;
+    }
+    Ok(())
+}
+
+fn track_list_summary(candidate: &RankedCandidate) -> String {
+    let titles = candidate
+        .candidate
+        .tracks
+        .iter()
+        .take(3)
+        .map(|track| track.title.as_str())
+        .collect::<Vec<_>>()
+        .join("; ");
+    if candidate.candidate.tracks.len() > 3 {
+        format!("Tracks: {titles}; …")
+    } else {
+        format!("Tracks: {titles}")
+    }
+}
+
+fn show_track_lists(
+    interaction: &mut impl Interaction,
+    candidates: &[RankedCandidate],
+) -> io::Result<()> {
+    for (candidate_index, candidate) in candidates.iter().enumerate() {
+        interaction.show(&format!(
+            "\n  {}. {}",
+            candidate_index + 1,
+            candidate.candidate.human_label()
+        ))?;
+        for track in &candidate.candidate.tracks {
+            interaction.show(&format!(
+                "     {}-{:02} {} — {}",
+                track.position.disc, track.position.track, track.title, track.artist_credit.display
+            ))?;
+        }
+    }
+    Ok(())
 }
 
 fn choose_fallback(

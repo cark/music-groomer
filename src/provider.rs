@@ -15,8 +15,8 @@ pub use cover_art_archive::{ArtworkProvider, CoverArtArchive, ProviderArtwork};
 pub use lookup::{LookupOrigin, MetadataLookup, MetadataResolver};
 pub use musicbrainz::MusicBrainzProvider;
 pub use search::{
-    MetadataProvider, ProviderError, ProviderEvent, ProviderProgress, ProviderSearch, WaitReason,
-    source_inspection,
+    MetadataProvider, ProviderError, ProviderEvent, ProviderProgress, ProviderSearch,
+    ProviderSearchResult, WaitReason, source_inspection,
 };
 
 use crate::domain::CandidateRelease;

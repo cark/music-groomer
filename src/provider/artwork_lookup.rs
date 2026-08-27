@@ -1,4 +1,9 @@
-use super::{ArtworkProvider, CacheError, ProviderArtwork, ProviderCache, ProviderProgress};
+use std::time::SystemTime;
+
+use super::{
+    ArtworkCacheEntry, ArtworkProvider, CacheError, MetadataFreshness, ProviderArtwork,
+    ProviderCache, ProviderProgress,
+};
 
 pub struct ArtworkResolver<P> {
     provider: P,
@@ -15,11 +20,12 @@ impl<P: ArtworkProvider> ArtworkResolver<P> {
         release_group_id: &str,
         offline: bool,
         force_refresh: bool,
+        now: SystemTime,
         progress: &mut dyn ProviderProgress,
     ) -> ArtworkLookup {
         let mut warnings = Vec::new();
-        let cached = match self.cache.artwork(release_group_id) {
-            Ok(cached) => cached.map(|entry| entry.artwork),
+        let cached = match self.cache.artwork(release_group_id, now) {
+            Ok(cached) => cached,
             Err(CacheError::Damaged(path, error)) => {
                 warnings.push(format!(
                     "Ignored damaged artwork cache entry {}: {error}",
@@ -35,24 +41,43 @@ impl<P: ArtworkProvider> ArtworkResolver<P> {
 
         if offline {
             return ArtworkLookup {
-                artwork: cached,
+                artwork: cached_image(&cached),
                 origin: ArtworkLookupOrigin::OfflineCache,
                 warnings,
             };
         }
-        if !force_refresh && cached.is_some() {
-            return ArtworkLookup {
-                artwork: cached,
-                origin: ArtworkLookupOrigin::Cache,
-                warnings,
-            };
+        if !force_refresh {
+            match &cached {
+                Some(ArtworkCacheEntry::Image(artwork)) => {
+                    return ArtworkLookup {
+                        artwork: Some(artwork.clone()),
+                        origin: ArtworkLookupOrigin::Cache,
+                        warnings,
+                    };
+                }
+                Some(ArtworkCacheEntry::ConfirmedAbsent {
+                    freshness: MetadataFreshness::Fresh,
+                }) => {
+                    return ArtworkLookup {
+                        artwork: None,
+                        origin: ArtworkLookupOrigin::ConfirmedAbsentCache,
+                        warnings,
+                    };
+                }
+                Some(ArtworkCacheEntry::ConfirmedAbsent {
+                    freshness: MetadataFreshness::Stale,
+                })
+                | None => {}
+            }
         }
 
         match self.provider.front(release_group_id, progress) {
             Ok(artwork) => {
-                if let Some(artwork) = artwork.as_ref()
-                    && let Err(error) = self.cache.store_artwork(release_group_id, artwork)
-                {
+                let stored = match artwork.as_ref() {
+                    Some(artwork) => self.cache.store_artwork(release_group_id, artwork),
+                    None => self.cache.store_artwork_absence(release_group_id, now),
+                };
+                if let Err(error) = stored {
                     warnings.push(format!("Could not update artwork cache: {error}"));
                 }
                 ArtworkLookup {
@@ -65,12 +90,12 @@ impl<P: ArtworkProvider> ArtworkResolver<P> {
                     warnings,
                 }
             }
-            Err(error) if cached.is_some() => {
+            Err(error) if cached_image(&cached).is_some() => {
                 warnings.push(format!(
                     "Cover Art Archive could not be refreshed ({error}); using cached artwork"
                 ));
                 ArtworkLookup {
-                    artwork: cached,
+                    artwork: cached_image(&cached),
                     origin: ArtworkLookupOrigin::CacheFallback,
                     warnings,
                 }
@@ -87,6 +112,13 @@ impl<P: ArtworkProvider> ArtworkResolver<P> {
     }
 }
 
+fn cached_image(cached: &Option<ArtworkCacheEntry>) -> Option<ProviderArtwork> {
+    match cached {
+        Some(ArtworkCacheEntry::Image(artwork)) => Some(artwork.clone()),
+        Some(ArtworkCacheEntry::ConfirmedAbsent { .. }) | None => None,
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ArtworkLookup {
     pub artwork: Option<ProviderArtwork>,
@@ -99,6 +131,7 @@ pub enum ArtworkLookupOrigin {
     Live,
     Refreshed,
     Cache,
+    ConfirmedAbsentCache,
     CacheFallback,
     OfflineCache,
     ProviderUnavailable,
@@ -144,11 +177,52 @@ mod tests {
         };
         let mut resolver = ArtworkResolver::new(provider, cache);
 
-        let result = resolver.lookup("group", false, false, &mut ());
+        let result = resolver.lookup("group", false, false, std::time::UNIX_EPOCH, &mut ());
 
         assert_eq!(result.origin, ArtworkLookupOrigin::Cache);
         assert!(result.artwork.is_some());
         assert_eq!(resolver.provider.calls, 0);
+    }
+
+    #[test]
+    fn fresh_confirmed_absence_bypasses_archive() {
+        let temporary = TempDir::new().unwrap();
+        let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+        cache
+            .store_artwork_absence("group", std::time::UNIX_EPOCH)
+            .unwrap();
+        let provider = FakeArtworkProvider {
+            calls: 0,
+            result: Ok(Some(artwork())),
+        };
+        let mut resolver = ArtworkResolver::new(provider, cache);
+
+        let result = resolver.lookup("group", false, false, std::time::UNIX_EPOCH, &mut ());
+
+        assert_eq!(result.origin, ArtworkLookupOrigin::ConfirmedAbsentCache);
+        assert!(result.artwork.is_none());
+        assert_eq!(resolver.provider.calls, 0);
+    }
+
+    #[test]
+    fn transient_failure_is_not_cached_as_confirmed_absence() {
+        let temporary = TempDir::new().unwrap();
+        let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+        let provider = FakeArtworkProvider {
+            calls: 0,
+            result: Err(ProviderError::Network("temporary".into())),
+        };
+        let mut resolver = ArtworkResolver::new(provider, cache.clone());
+
+        let result = resolver.lookup("group", false, false, std::time::UNIX_EPOCH, &mut ());
+
+        assert_eq!(result.origin, ArtworkLookupOrigin::ProviderUnavailable);
+        assert!(
+            cache
+                .artwork("group", std::time::UNIX_EPOCH)
+                .unwrap()
+                .is_none()
+        );
     }
 
     fn artwork() -> ProviderArtwork {

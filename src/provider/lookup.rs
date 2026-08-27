@@ -78,12 +78,13 @@ impl<P: MetadataProvider> MetadataResolver<P> {
         }
 
         match self.provider.search(search, progress) {
-            Ok(candidates) => {
-                if let Err(error) = self.cache.store_metadata(search, &candidates, now) {
+            Ok(result) => {
+                warnings.extend(result.warnings);
+                if let Err(error) = self.cache.store_metadata(search, &result.candidates, now) {
                     warnings.push(format!("Could not update provider cache: {error}"));
                 }
                 MetadataLookup {
-                    candidates,
+                    candidates: result.candidates,
                     origin: if force_refresh {
                         LookupOrigin::Refreshed
                     } else {
@@ -144,11 +145,11 @@ mod tests {
 
     use super::*;
     use crate::domain::{ArtistCredit, ReleaseKind, SourceKind};
-    use crate::provider::ProviderError;
+    use crate::provider::{ProviderError, ProviderSearchResult};
 
     struct FakeProvider {
         calls: usize,
-        result: Result<Vec<CandidateRelease>, ProviderError>,
+        result: Result<ProviderSearchResult, ProviderError>,
     }
 
     impl MetadataProvider for FakeProvider {
@@ -156,7 +157,7 @@ mod tests {
             &mut self,
             _search: &ProviderSearch,
             _progress: &mut dyn ProviderProgress,
-        ) -> Result<Vec<CandidateRelease>, ProviderError> {
+        ) -> Result<ProviderSearchResult, ProviderError> {
             self.calls += 1;
             std::mem::replace(
                 &mut self.result,
@@ -174,7 +175,10 @@ mod tests {
             .unwrap();
         let provider = FakeProvider {
             calls: 0,
-            result: Ok(vec![candidate("live")]),
+            result: Ok(ProviderSearchResult {
+                candidates: vec![candidate("live")],
+                warnings: Vec::new(),
+            }),
         };
         let mut resolver = MetadataResolver::new(provider, cache);
 
@@ -215,7 +219,10 @@ mod tests {
             .unwrap();
         let provider = FakeProvider {
             calls: 0,
-            result: Ok(vec![candidate("live")]),
+            result: Ok(ProviderSearchResult {
+                candidates: vec![candidate("live")],
+                warnings: Vec::new(),
+            }),
         };
         let mut resolver = MetadataResolver::new(provider, cache);
         let now = UNIX_EPOCH + Duration::from_secs(31 * 86_400);
@@ -231,6 +238,8 @@ mod tests {
             kind: SourceKind::AlbumDirectory,
             album: Some("Album".into()),
             artist: Some("Artist".into()),
+            artist_ids: Vec::new(),
+            album_artist_ids: Vec::new(),
             title: None,
             release_group_id: None,
             recording_ids: Vec::new(),

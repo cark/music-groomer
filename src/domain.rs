@@ -88,11 +88,13 @@ pub struct Inspection {
     pub tracks: Vec<InspectedTrack>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReleaseKind {
     Album,
     Single,
+    Ep,
     Compilation,
+    Other(String),
 }
 
 impl fmt::Display for ReleaseKind {
@@ -100,7 +102,10 @@ impl fmt::Display for ReleaseKind {
         let value = match self {
             Self::Album => "Album",
             Self::Single => "Single",
+            Self::Ep => "EP",
             Self::Compilation => "Compilation",
+            Self::Other(primary_type) if primary_type.is_empty() => "Other",
+            Self::Other(primary_type) => return write!(formatter, "Other ({primary_type})"),
         };
         formatter.write_str(value)
     }
@@ -128,14 +133,28 @@ pub struct CandidateRelease {
 }
 
 impl CandidateRelease {
+    pub fn disc_count(&self) -> usize {
+        self.tracks
+            .iter()
+            .map(|track| track.position.disc)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+    }
+
     pub fn human_label(&self) -> String {
         format!(
-            "{} — {} ({}, {}, {} {})",
+            "{} — {} ({}, {}, {} {}, {} {})",
             self.album_artist.display,
             self.title,
             self.original_year
                 .map_or_else(|| "year unknown".to_owned(), |year| year.to_string()),
             self.kind,
+            self.disc_count(),
+            if self.disc_count() == 1 {
+                "disc"
+            } else {
+                "discs"
+            },
             self.tracks.len(),
             if self.tracks.len() == 1 {
                 "track"

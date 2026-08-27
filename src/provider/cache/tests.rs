@@ -113,10 +113,13 @@ fn artwork_round_trips_in_its_native_format() {
     let artwork = cover_art_archive::decode(bytes).unwrap();
 
     cache.store_artwork("group", &artwork).unwrap();
-    let cached = cache.artwork("group").unwrap().unwrap();
+    let cached = cache.artwork("group", UNIX_EPOCH).unwrap().unwrap();
 
-    assert_eq!(cached.artwork.format, crate::source::ArtworkFormat::Png);
-    assert_eq!(cached.artwork.dimensions, (3, 4));
+    let ArtworkCacheEntry::Image(cached) = cached else {
+        panic!("expected cached image");
+    };
+    assert_eq!(cached.format, crate::source::ArtworkFormat::Png);
+    assert_eq!(cached.dimensions, (3, 4));
     assert_eq!(cache.status(UNIX_EPOCH).unwrap().artwork_entries, 1);
 }
 
@@ -140,9 +143,39 @@ fn replacing_artwork_removes_the_previous_native_format() {
         .store_artwork("group", &cover_art_archive::decode(png).unwrap())
         .unwrap();
 
-    let cached = cache.artwork("group").unwrap().unwrap();
-    assert_eq!(cached.artwork.format, crate::source::ArtworkFormat::Png);
+    let cached = cache.artwork("group", UNIX_EPOCH).unwrap().unwrap();
+    let ArtworkCacheEntry::Image(cached) = cached else {
+        panic!("expected cached image");
+    };
+    assert_eq!(cached.format, crate::source::ArtworkFormat::Png);
     assert_eq!(cache.status(UNIX_EPOCH).unwrap().artwork_entries, 1);
+}
+
+#[test]
+fn confirmed_artwork_absence_is_fresh_for_thirty_days_and_counted_separately() {
+    let temporary = TempDir::new().unwrap();
+    let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+    cache.store_artwork_absence("group", UNIX_EPOCH).unwrap();
+
+    assert!(matches!(
+        cache
+            .artwork("group", UNIX_EPOCH + Duration::from_secs(29 * 86_400))
+            .unwrap(),
+        Some(ArtworkCacheEntry::ConfirmedAbsent {
+            freshness: MetadataFreshness::Fresh
+        })
+    ));
+    assert!(matches!(
+        cache
+            .artwork("group", UNIX_EPOCH + Duration::from_secs(31 * 86_400))
+            .unwrap(),
+        Some(ArtworkCacheEntry::ConfirmedAbsent {
+            freshness: MetadataFreshness::Stale
+        })
+    ));
+    let status = cache.status(UNIX_EPOCH).unwrap();
+    assert_eq!(status.artwork_entries, 0);
+    assert_eq!(status.confirmed_artwork_absences, 1);
 }
 
 fn search(album: &str) -> ProviderSearch {
@@ -150,6 +183,8 @@ fn search(album: &str) -> ProviderSearch {
         kind: SourceKind::AlbumDirectory,
         album: Some(album.into()),
         artist: Some("Artist".into()),
+        artist_ids: Vec::new(),
+        album_artist_ids: Vec::new(),
         title: None,
         release_group_id: None,
         recording_ids: Vec::new(),

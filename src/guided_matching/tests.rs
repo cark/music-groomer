@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::time::Duration;
+use std::{cell::Cell, rc::Rc};
 
 use tempfile::TempDir;
 
@@ -9,7 +10,7 @@ use crate::artwork_viewer::{ArtworkViewer, ViewerError};
 use crate::domain::{
     ArtistCredit, CandidateRelease, Position, ReleaseKind, ReleaseTrack, SourceKind,
 };
-use crate::provider::{ProviderError, ProviderSearch};
+use crate::provider::{ProviderError, ProviderSearch, ProviderSearchResult};
 use crate::source::{AudioFormat, AudioProperties, AudioTags, InspectedAudio};
 
 struct ScriptedInteraction {
@@ -39,13 +40,21 @@ impl MetadataProvider for FakeMetadata {
         &mut self,
         _search: &ProviderSearch,
         progress: &mut dyn ProviderProgress,
-    ) -> Result<Vec<CandidateRelease>, ProviderError> {
+    ) -> Result<ProviderSearchResult, ProviderError> {
         progress.event(ProviderEvent::Requesting("fake metadata"))?;
-        Ok(self.results.pop_front().unwrap_or_default())
+        Ok(ProviderSearchResult {
+            candidates: self.results.pop_front().unwrap_or_default(),
+            warnings: Vec::new(),
+        })
     }
 }
 
 struct NoArtwork;
+
+struct QueuedArtwork {
+    calls: Rc<Cell<usize>>,
+    results: VecDeque<Option<crate::provider::ProviderArtwork>>,
+}
 
 struct NoopViewer;
 
@@ -88,6 +97,17 @@ impl ArtworkProvider for NoArtwork {
         _progress: &mut dyn ProviderProgress,
     ) -> Result<Option<crate::provider::ProviderArtwork>, ProviderError> {
         Ok(None)
+    }
+}
+
+impl ArtworkProvider for QueuedArtwork {
+    fn front(
+        &mut self,
+        _release_group_id: &str,
+        _progress: &mut dyn ProviderProgress,
+    ) -> Result<Option<crate::provider::ProviderArtwork>, ProviderError> {
+        self.calls.set(self.calls.get() + 1);
+        Ok(self.results.pop_front().unwrap_or(None))
     }
 }
 
@@ -183,6 +203,234 @@ fn artwork_view_action_uses_the_viewer_boundary() {
             .transcript
             .contains("Opened the selected artwork")
     );
+}
+
+#[test]
+fn metadata_review_can_replace_an_automatic_selection_without_restarting() {
+    let temporary = TempDir::new().unwrap();
+    let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+    let mut alternative = candidate("Alternative");
+    alternative.original_year = Some(2001);
+    let mut interaction = ScriptedInteraction {
+        answers: VecDeque::from(["r".into(), "m".into(), "2".into(), "d".into()]),
+        transcript: String::new(),
+    };
+
+    let result = run(
+        &mut interaction,
+        &source(),
+        false,
+        FakeMetadata {
+            results: VecDeque::from([vec![candidate("Album"), alternative]]),
+        },
+        NoArtwork,
+        cache,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    let MetadataSelection::Provider(selected) = result.metadata else {
+        panic!("expected provider metadata");
+    };
+    assert_eq!(selected.candidate.title, "Alternative");
+    assert_eq!(result.candidates.len(), 2);
+    assert!(interaction.transcript.contains("Metadata selection"));
+    assert!(interaction.transcript.contains("Tracks: Track"));
+}
+
+#[test]
+fn refresh_checks_artwork_and_keeps_the_current_choice_when_declined() {
+    let temporary = TempDir::new().unwrap();
+    let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+    let first = provider_artwork((10, 10));
+    let changed = provider_artwork((20, 20));
+    let calls = Rc::new(Cell::new(0));
+    let mut interaction = ScriptedInteraction {
+        answers: VecDeque::from(["f".into(), "".into(), "d".into()]),
+        transcript: String::new(),
+    };
+
+    let result = run(
+        &mut interaction,
+        &source(),
+        false,
+        FakeMetadata {
+            results: VecDeque::from([vec![candidate("Album")], vec![candidate("Album")]]),
+        },
+        QueuedArtwork {
+            calls: calls.clone(),
+            results: VecDeque::from([Some(first.clone()), Some(changed)]),
+        },
+        cache,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    assert_eq!(calls.get(), 2);
+    assert_eq!(result.artwork, ArtworkSelection::CoverArtArchive(first));
+    assert!(interaction.transcript.contains("Previous: JPEG 10x10"));
+    assert!(interaction.transcript.contains("Refreshed: JPEG 20x20"));
+}
+
+#[test]
+fn existing_source_release_group_offers_artwork_but_does_not_select_it_automatically() {
+    let temporary = TempDir::new().unwrap();
+    let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+    let mut source = source();
+    source.audio[0].tags.release_group_id = Some("source-group".into());
+    let mut interaction = ScriptedInteraction {
+        answers: VecDeque::from(["".into(), "d".into()]),
+        transcript: String::new(),
+    };
+
+    let result = run(
+        &mut interaction,
+        &source,
+        false,
+        FakeMetadata {
+            results: VecDeque::from([Vec::new()]),
+        },
+        QueuedArtwork {
+            calls: Rc::new(Cell::new(0)),
+            results: VecDeque::from([Some(provider_artwork((30, 30)))]),
+        },
+        cache,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    assert_eq!(result.artwork, ArtworkSelection::None);
+    assert_eq!(
+        result.metadata_provenance,
+        MetadataProvenance::ExistingTags {
+            artwork_via_source_id: true
+        }
+    );
+    assert!(interaction.transcript.contains("via existing source ID"));
+    assert!(interaction.transcript.contains("Artwork alternative"));
+}
+
+#[test]
+fn source_year_fallback_is_applied_only_after_selection_and_keeps_provenance() {
+    let temporary = TempDir::new().unwrap();
+    let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+    let mut missing_year = candidate("Album");
+    missing_year.original_year = None;
+    let mut interaction = ScriptedInteraction {
+        answers: VecDeque::from(["d".into()]),
+        transcript: String::new(),
+    };
+
+    let result = run(
+        &mut interaction,
+        &source(),
+        false,
+        FakeMetadata {
+            results: VecDeque::from([vec![missing_year]]),
+        },
+        NoArtwork,
+        cache,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    assert_eq!(
+        result.metadata_provenance,
+        MetadataProvenance::MusicBrainzWithSourceYear(2000)
+    );
+    assert_eq!(
+        result
+            .warnings
+            .iter()
+            .filter(|warning| warning.contains("source year 2000"))
+            .count(),
+        1
+    );
+    assert!(
+        interaction
+            .transcript
+            .contains("Year provenance: source tags")
+    );
+}
+
+#[test]
+fn final_warning_set_includes_source_paths_and_deduplicates_causes() {
+    let temporary = TempDir::new().unwrap();
+    let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+    let mut source = source();
+    source
+        .notices
+        .push(crate::source::InspectionNotice::warning(
+            crate::source::NoticeKind::StaleReference,
+            Some(PathBuf::from("playlist.m3u")),
+            "may refer to renamed audio",
+        ));
+    source
+        .notices
+        .push(crate::source::InspectionNotice::warning(
+            crate::source::NoticeKind::StaleReference,
+            Some(PathBuf::from("playlist.m3u")),
+            "may refer to renamed audio",
+        ));
+    let mut interaction = ScriptedInteraction {
+        answers: VecDeque::from(["d".into()]),
+        transcript: String::new(),
+    };
+
+    let result = run(
+        &mut interaction,
+        &source,
+        false,
+        FakeMetadata {
+            results: VecDeque::from([vec![candidate("Album")]]),
+        },
+        NoArtwork,
+        cache,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    assert_eq!(
+        result
+            .warnings
+            .iter()
+            .filter(|warning| warning.contains("playlist.m3u"))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn inconsistent_source_identity_tags_are_visible_before_textual_fallback() {
+    let (mut inspection, _) = source_inspection(&source());
+    inspection.tracks[0].album_artist_ids = vec!["artist-one".into()];
+    let mut second = inspection.tracks[0].clone();
+    second.source_name = "02.flac".into();
+    second.album_artist_ids = vec!["artist-two".into()];
+    second.release_group_id = Some("other-group".into());
+    inspection.tracks[0].release_group_id = Some("first-group".into());
+    inspection.tracks.push(second);
+
+    let warnings = identifier_warnings(&inspection);
+
+    assert!(
+        warnings
+            .iter()
+            .any(|warning| warning.contains("release-group"))
+    );
+    assert!(
+        warnings
+            .iter()
+            .any(|warning| warning.contains("album-artist"))
+    );
+}
+
+fn provider_artwork(dimensions: (u32, u32)) -> crate::provider::ProviderArtwork {
+    crate::provider::ProviderArtwork {
+        bytes: vec![dimensions.0 as u8, dimensions.1 as u8],
+        format: crate::source::ArtworkFormat::Jpeg,
+        dimensions,
+    }
 }
 
 fn source() -> SourceInspection {

@@ -78,9 +78,10 @@ fn show_cache_status(cache: &ProviderCache) -> Result<(), String> {
         status.fresh_metadata, status.stale_metadata
     );
     println!(
-        "  Artwork: {} files, {}",
+        "  Artwork: {} images, {}; {} confirmed absent",
         status.artwork_entries,
-        byte_count(status.artwork_bytes)
+        byte_count(status.artwork_bytes),
+        status.confirmed_artwork_absences
     );
     println!("  Damaged entries: {}", status.damaged_entries);
     Ok(())
