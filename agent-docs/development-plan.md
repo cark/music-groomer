@@ -123,7 +123,7 @@ behaviors are covered by temporary-directory and format-specific tests.
 
 ## Milestone 3a: providers, cache, and real matching
 
-Status: implemented and verified, awaiting user review
+Status: reviewed; accepted corrections await overall implementation confirmation
 
 Integrate MusicBrainz and Cover Art Archive behind narrow adapters. Add the
 bounded file cache. Keep `fpcalc` and AcoustID out of this milestone so the
@@ -159,6 +159,13 @@ The sparse offline fixture intentionally ends with a clear metadata blocker.
 Ordinary and refresh paths are exercised with deterministic provider fakes;
 the ignored live tests query MusicBrainz and the Cover Art Archive without
 accessing any selected source or destination.
+
+The first implementation review found a coherent correction set covering
+bounded release-group discovery, edition structure, identifier lookup, matching
+gates, revisable metadata, provenance, warning consolidation, artwork refresh,
+negative artwork caching, and the intentionally line-oriented interaction.
+Implement only after overall confirmation; see
+[Milestone 3a review corrections](decisions/milestone-3a-review.md).
 
 ## Milestone 3b: difficult loose-track identification
 

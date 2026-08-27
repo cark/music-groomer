@@ -6,9 +6,10 @@ must never modify the selected source.
 
 ## Current phase
 
-Product and technical direction are aligned through milestone 3a. Milestones 1
-and 2 are implemented, verified, reviewed, and accepted. Milestone 3a is
-implemented and verified and awaits user review. Milestone 3b remains pending.
+Product and technical direction are aligned through the initial milestone 3a
+implementation. Milestones 1 and 2 are implemented, verified, reviewed, and
+accepted. Milestone 3a review found individually accepted corrections that
+await overall implementation confirmation. Milestone 3b remains pending.
 
 ## Task routing
 

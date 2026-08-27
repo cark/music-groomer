@@ -11,6 +11,7 @@ Detailed decisions are grouped into small pages:
 - [Files, tags, and artwork](decisions/files-tags-artwork.md)
 - [Standalone tracks and scope](decisions/standalone-tracks-and-scope.md)
 - [Technical boundaries](decisions/technical-boundaries.md)
+- [Milestone 3a review corrections](decisions/milestone-3a-review.md)
 
 Implementation must not begin merely because this index has no open entry. The
 user must explicitly confirm overall alignment, as required by `AGENTS.md`.
@@ -21,5 +22,5 @@ decision page.
 
 ## Open questions
 
-None currently recorded. Milestone 3a awaits user review of the implemented
-guided matching and cache behavior. Milestone 3b remains pending.
+Milestone 3a review corrections were individually accepted and await one final
+overall implementation confirmation. Milestone 3b remains pending.
