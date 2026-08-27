@@ -69,6 +69,14 @@ contradictions, or a simpler design warrant it. Do not manufacture objections
 merely to demonstrate independence or to satisfy this rule; agreement is the
 right answer when the proposal is sound.
 
+Keep asking one question at a time for choices that affect visible behavior,
+data meaning, safety, complexity, or future direction. Reversible internal
+details that follow accepted principles do not each require approval, but they
+should not become invisible: after a meaningful discussion step, a short
+"decision pulse" may group at most three related minor choices in one line with
+the intended defaults. The user can say to continue or stop on any item that
+sparks an idea. Do not turn the pulse into a questionnaire or a wall of text.
+
 Before a large implementation boundary after lengthy alignment, proactively
 suggest a conversation compaction and provide the exact resume phrase. This
 keeps the handoff cheap without making the user spend a turn asking whether the
