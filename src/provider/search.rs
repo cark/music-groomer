@@ -46,8 +46,12 @@ pub trait ProviderProgress {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProviderEvent {
-    Requesting(&'static str),
+    Requesting {
+        provider: ProviderName,
+        operation: &'static str,
+    },
     Waiting {
+        provider: ProviderName,
         seconds: u64,
         reason: WaitReason,
     },
@@ -55,6 +59,23 @@ pub enum ProviderEvent {
         original: String,
         simplified: String,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProviderName {
+    MusicBrainz,
+    CoverArtArchive,
+    AcoustId,
+}
+
+impl fmt::Display for ProviderName {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::MusicBrainz => "MusicBrainz",
+            Self::CoverArtArchive => "Cover Art Archive",
+            Self::AcoustId => "AcoustID",
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -104,6 +125,11 @@ impl fmt::Display for ProviderError {
 impl std::error::Error for ProviderError {}
 
 pub fn source_inspection(source: &SourceInspection) -> (Inspection, ProviderSearch) {
+    let kind = if source.audio.len() == 1 {
+        SourceKind::LooseFile
+    } else {
+        source.kind
+    };
     let tracks = source
         .audio
         .iter()
@@ -125,18 +151,18 @@ pub fn source_inspection(source: &SourceInspection) -> (Inspection, ProviderSear
         .collect::<Vec<_>>();
     let inspection = Inspection {
         source_label: source.source.display().to_string(),
-        kind: source.kind,
+        kind,
         tracks,
     };
     let search = ProviderSearch {
-        kind: source.kind,
+        kind,
         album: common(&inspection, |track| track.album.as_deref()),
         artist: common(&inspection, |track| {
             track.album_artist.as_deref().or(track.artist.as_deref())
         }),
         artist_ids: common_ids(&inspection, |track| &track.artist_ids),
         album_artist_ids: common_ids(&inspection, |track| &track.album_artist_ids),
-        title: (source.kind == SourceKind::LooseFile)
+        title: (kind == SourceKind::LooseFile)
             .then(|| inspection.tracks.first()?.title.clone())
             .flatten(),
         release_group_id: common(&inspection, |track| track.release_group_id.as_deref()),
@@ -241,6 +267,25 @@ mod tests {
 
         assert_eq!(search.album.as_deref(), Some("Album"));
         assert!(search.is_usable());
+    }
+
+    #[test]
+    fn one_track_directory_uses_standalone_matching_semantics() {
+        let source = SourceInspection {
+            source: PathBuf::from("incoming/one-track"),
+            kind: SourceKind::AlbumDirectory,
+            audio: vec![audio(1, "1999")],
+            ancillary: Vec::new(),
+            artwork: Vec::new(),
+            selected_artwork: None,
+            notices: Vec::new(),
+        };
+
+        let (inspection, search) = source_inspection(&source);
+
+        assert_eq!(inspection.kind, SourceKind::LooseFile);
+        assert_eq!(search.kind, SourceKind::LooseFile);
+        assert_eq!(search.title.as_deref(), Some("Track 1"));
     }
 
     fn audio(track: u32, date: &str) -> InspectedAudio {

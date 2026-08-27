@@ -10,7 +10,13 @@ use crate::artwork_viewer::{ArtworkViewer, ViewerError};
 use crate::domain::{
     ArtistCredit, CandidateRelease, Position, ReleaseKind, ReleaseTrack, SourceKind,
 };
-use crate::provider::{ProviderError, ProviderSearch, ProviderSearchResult};
+use crate::fingerprint::{
+    AudioFingerprint, AudioFingerprinter, FingerprintError, FingerprintProgress,
+};
+use crate::provider::{
+    AcoustIdProvider, AcoustIdResponse, AcoustIdResult, ProviderError, ProviderSearch,
+    ProviderSearchResult,
+};
 use crate::source::{AudioFormat, AudioProperties, AudioTags, InspectedAudio};
 
 struct ScriptedInteraction {
@@ -35,13 +41,59 @@ struct FakeMetadata {
     results: VecDeque<Vec<CandidateRelease>>,
 }
 
+struct FakeFingerprinter {
+    calls: usize,
+}
+
+impl AudioFingerprinter for FakeFingerprinter {
+    fn calculate(
+        &mut self,
+        _audio: &std::path::Path,
+        progress: &mut dyn FingerprintProgress,
+    ) -> Result<AudioFingerprint, FingerprintError> {
+        self.calls += 1;
+        progress.calculating(std::path::Path::new("track.flac"))?;
+        Ok(AudioFingerprint {
+            duration_seconds: 180,
+            value: "fingerprint".into(),
+        })
+    }
+}
+
+struct FakeAcoustId {
+    score: f64,
+}
+
+impl AcoustIdProvider for FakeAcoustId {
+    fn lookup(
+        &mut self,
+        _fingerprint: &AudioFingerprint,
+        progress: &mut dyn ProviderProgress,
+    ) -> Result<AcoustIdResponse, ProviderError> {
+        progress.event(ProviderEvent::Requesting {
+            provider: crate::provider::ProviderName::AcoustId,
+            operation: "fake AcoustID",
+        })?;
+        Ok(AcoustIdResponse {
+            results: vec![AcoustIdResult {
+                id: "acoustid-result".into(),
+                score: self.score,
+                recording_ids: vec!["recording".into()],
+            }],
+        })
+    }
+}
+
 impl MetadataProvider for FakeMetadata {
     fn search(
         &mut self,
         _search: &ProviderSearch,
         progress: &mut dyn ProviderProgress,
     ) -> Result<ProviderSearchResult, ProviderError> {
-        progress.event(ProviderEvent::Requesting("fake metadata"))?;
+        progress.event(ProviderEvent::Requesting {
+            provider: crate::provider::ProviderName::MusicBrainz,
+            operation: "fake metadata",
+        })?;
         Ok(ProviderSearchResult {
             candidates: self.results.pop_front().unwrap_or_default(),
             warnings: Vec::new(),
@@ -425,6 +477,131 @@ fn inconsistent_source_identity_tags_are_visible_before_textual_fallback() {
     );
 }
 
+#[test]
+fn strong_fingerprint_fallback_resolves_and_selects_a_single_in_one_interaction() {
+    let temporary = TempDir::new().unwrap();
+    let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+    let mut interaction = ScriptedInteraction {
+        answers: VecDeque::from(["d".into()]),
+        transcript: String::new(),
+    };
+    let mut fingerprinter = FakeFingerprinter { calls: 0 };
+    let mut acoustid = FakeAcoustId { score: 0.95 };
+
+    let result = run_with_identification(
+        &mut interaction,
+        &poorly_tagged_track(),
+        false,
+        GuidedProviders::new(
+            FakeMetadata {
+                results: VecDeque::from([Vec::new(), vec![single_candidate()]]),
+            },
+            NoArtwork,
+            &mut fingerprinter,
+            &mut acoustid,
+        ),
+        cache,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    assert_eq!(fingerprinter.calls, 1);
+    assert_eq!(
+        result.metadata_provenance,
+        MetadataProvenance::MusicBrainzWithFingerprint
+    );
+    assert!(result.identification.is_some());
+    assert!(
+        interaction
+            .transcript
+            .contains("Calculating local audio fingerprint")
+    );
+    assert!(interaction.transcript.contains("not the audio file"));
+    assert!(
+        interaction
+            .transcript
+            .contains("Audio fingerprint supports this recording")
+    );
+    assert!(interaction.transcript.contains("Clear metadata match"));
+}
+
+#[test]
+fn merely_qualifying_fingerprint_requires_confirmation() {
+    let temporary = TempDir::new().unwrap();
+    let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+    let mut interaction = ScriptedInteraction {
+        answers: VecDeque::from(["y".into(), "d".into()]),
+        transcript: String::new(),
+    };
+    let mut fingerprinter = FakeFingerprinter { calls: 0 };
+    let mut acoustid = FakeAcoustId { score: 0.85 };
+
+    run_with_identification(
+        &mut interaction,
+        &poorly_tagged_track(),
+        false,
+        GuidedProviders::new(
+            FakeMetadata {
+                results: VecDeque::from([Vec::new(), vec![single_candidate()]]),
+            },
+            NoArtwork,
+            &mut fingerprinter,
+            &mut acoustid,
+        ),
+        cache,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    assert!(interaction.transcript.contains("Use this uncertain match?"));
+}
+
+#[test]
+fn provider_refresh_recalculates_and_refreshes_fingerprint_identification() {
+    let temporary = TempDir::new().unwrap();
+    let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+    let mut interaction = ScriptedInteraction {
+        answers: VecDeque::from(["f".into(), "d".into()]),
+        transcript: String::new(),
+    };
+    let mut fingerprinter = FakeFingerprinter { calls: 0 };
+    let mut acoustid = FakeAcoustId { score: 0.95 };
+
+    run_with_identification(
+        &mut interaction,
+        &poorly_tagged_track(),
+        false,
+        GuidedProviders::new(
+            FakeMetadata {
+                results: VecDeque::from([
+                    Vec::new(),
+                    vec![single_candidate()],
+                    vec![single_candidate()],
+                ]),
+            },
+            NoArtwork,
+            &mut fingerprinter,
+            &mut acoustid,
+        ),
+        cache,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    assert_eq!(fingerprinter.calls, 2);
+    assert!(
+        interaction
+            .transcript
+            .contains("AcoustID identification refreshed")
+    );
+    assert!(
+        interaction
+            .transcript
+            .contains("MusicBrainz data refreshed")
+    );
+    assert!(interaction.transcript.contains("preview did not change"));
+}
+
 fn provider_artwork(dimensions: (u32, u32)) -> crate::provider::ProviderArtwork {
     crate::provider::ProviderArtwork {
         bytes: vec![dimensions.0 as u8, dimensions.1 as u8],
@@ -480,6 +657,48 @@ fn candidate(title: &str) -> CandidateRelease {
             recording_id: Some("recording".into()),
         }],
         release_group_id: Some(format!("group-{title}")),
+        exact_release_id: None,
+    }
+}
+
+fn poorly_tagged_track() -> SourceInspection {
+    SourceInspection {
+        source: PathBuf::from("incoming/unknown.flac"),
+        kind: SourceKind::LooseFile,
+        audio: vec![InspectedAudio {
+            relative_path: PathBuf::from("unknown.flac"),
+            format: AudioFormat::Flac,
+            properties: AudioProperties {
+                duration: Duration::from_secs(180),
+                sample_rate: Some(44_100),
+                channels: Some(2),
+                bit_depth: Some(16),
+                audio_bitrate: None,
+            },
+            tags: AudioTags::default(),
+        }],
+        ancillary: Vec::new(),
+        artwork: Vec::new(),
+        selected_artwork: None,
+        notices: Vec::new(),
+    }
+}
+
+fn single_candidate() -> CandidateRelease {
+    CandidateRelease {
+        provider_key: "single".into(),
+        title: "Identified Song".into(),
+        album_artist: ArtistCredit::single("Identified Artist"),
+        original_year: Some(1999),
+        kind: ReleaseKind::Single,
+        tracks: vec![ReleaseTrack {
+            title: "Identified Song".into(),
+            artist_credit: ArtistCredit::single("Identified Artist"),
+            position: Position::new(1, 1),
+            duration_ms: 180_000,
+            recording_id: Some("recording".into()),
+        }],
+        release_group_id: Some("single-group".into()),
         exact_release_id: None,
     }
 }

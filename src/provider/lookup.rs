@@ -104,6 +104,11 @@ impl<P: MetadataProvider> MetadataResolver<P> {
                     warnings,
                 }
             }
+            Err(super::ProviderError::InsufficientEvidence) => MetadataLookup {
+                candidates: Vec::new(),
+                origin: LookupOrigin::InsufficientEvidence,
+                warnings,
+            },
             Err(error) => match cached {
                 Some(entry) => {
                     warnings.push(format!(
@@ -146,6 +151,7 @@ pub enum LookupOrigin {
     OfflineStaleCache,
     OfflineMiss,
     ProviderUnavailable,
+    InsufficientEvidence,
 }
 
 #[cfg(test)]
@@ -277,6 +283,22 @@ mod tests {
 
         assert_eq!(result.origin, LookupOrigin::OfflineStaleCache);
         assert_eq!(resolver.provider.calls, 0);
+    }
+
+    #[test]
+    fn insufficient_search_evidence_is_not_reported_as_provider_unavailability() {
+        let temporary = TempDir::new().unwrap();
+        let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+        let provider = FakeProvider {
+            calls: 0,
+            result: Err(ProviderError::InsufficientEvidence),
+        };
+        let mut resolver = MetadataResolver::new(provider, cache);
+
+        let result = resolver.lookup(&search(), false, false, UNIX_EPOCH, &mut ());
+
+        assert_eq!(result.origin, LookupOrigin::InsufficientEvidence);
+        assert!(result.warnings.is_empty());
     }
 
     fn search() -> ProviderSearch {

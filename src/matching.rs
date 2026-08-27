@@ -18,6 +18,7 @@ pub struct TrackMapping {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TrackMatchBasis {
     RecordingId,
+    AudioFingerprint,
     TitleAndDuration,
     PositionFallback,
 }
@@ -44,6 +45,12 @@ impl RankedCandidate {
             && self.credible_identity
             && self.meaningful_track_evidence
             && !self.identifier_conflict
+    }
+
+    pub fn add_reason(&mut self, summary: impl Into<String>) {
+        self.reasons.push(MatchReason {
+            summary: summary.into(),
+        });
     }
 }
 
@@ -88,9 +95,29 @@ impl MatchPolicy {
         inspection: &Inspection,
         candidates: Vec<CandidateRelease>,
     ) -> MatchDecision {
+        self.decide_ranked(inspection, candidates, &[], true)
+    }
+
+    pub fn decide_with_fingerprint(
+        &self,
+        inspection: &Inspection,
+        candidates: Vec<CandidateRelease>,
+        recording_ids: &[String],
+        allow_automatic: bool,
+    ) -> MatchDecision {
+        self.decide_ranked(inspection, candidates, recording_ids, allow_automatic)
+    }
+
+    fn decide_ranked(
+        &self,
+        inspection: &Inspection,
+        candidates: Vec<CandidateRelease>,
+        fingerprint_recording_ids: &[String],
+        allow_automatic: bool,
+    ) -> MatchDecision {
         let mut ranked: Vec<_> = candidates
             .into_iter()
-            .map(|candidate| rank(inspection, candidate))
+            .map(|candidate| rank(inspection, candidate, fingerprint_recording_ids))
             .collect();
         ranked.sort_by_key(|candidate| Reverse(candidate.score));
 
@@ -137,7 +164,12 @@ impl MatchPolicy {
         } else {
             self.minimum_auto_score
         };
-        if best.score >= minimum_auto_score && clear_lead && best.is_credible() && accepted_kind {
+        if allow_automatic
+            && best.score >= minimum_auto_score
+            && clear_lead
+            && best.is_credible()
+            && accepted_kind
+        {
             MatchDecision::Selected {
                 selected: Box::new(best.clone()),
                 candidates: usable,
@@ -148,7 +180,11 @@ impl MatchPolicy {
     }
 }
 
-fn rank(inspection: &Inspection, candidate: CandidateRelease) -> RankedCandidate {
+fn rank(
+    inspection: &Inspection,
+    candidate: CandidateRelease,
+    fingerprint_recording_ids: &[String],
+) -> RankedCandidate {
     let mut score = 0;
     let mut reasons = Vec::new();
     let mut used = BTreeSet::new();
@@ -178,7 +214,9 @@ fn rank(inspection: &Inspection, candidate: CandidateRelease) -> RankedCandidate
             .enumerate()
             .filter(|(index, _)| !used.contains(index))
             .collect();
-        let Some((candidate_index, target, basis)) = best_track(source, &available) else {
+        let Some((candidate_index, target, basis)) =
+            best_track(source, &available, fingerprint_recording_ids)
+        else {
             reasons.push(reason(format!(
                 "{} has no unique candidate track",
                 source.source_name
@@ -189,6 +227,13 @@ fn rank(inspection: &Inspection, candidate: CandidateRelease) -> RankedCandidate
         let evidence = track_evidence(source, target);
         score += evidence.score;
         reasons.extend(evidence.reasons);
+        if basis == TrackMatchBasis::AudioFingerprint {
+            score += 250;
+            reasons.push(reason(format!(
+                "audio fingerprint supports {}",
+                source.source_name
+            )));
+        }
         used.insert(candidate_index);
         mappings.push(TrackMapping {
             source_index,
@@ -268,10 +313,29 @@ fn rank(inspection: &Inspection, candidate: CandidateRelease) -> RankedCandidate
     let meaningful_track_evidence = mappings.iter().any(|mapping| {
         matches!(
             mapping.basis,
-            TrackMatchBasis::RecordingId | TrackMatchBasis::TitleAndDuration
+            TrackMatchBasis::RecordingId
+                | TrackMatchBasis::AudioFingerprint
+                | TrackMatchBasis::TitleAndDuration
         )
     });
+    let fingerprint_conflict = mappings.iter().any(|mapping| {
+        if mapping.basis != TrackMatchBasis::AudioFingerprint {
+            return false;
+        }
+        let source = &inspection.tracks[mapping.source_index];
+        let target = &candidate.tracks[mapping.candidate_index];
+        !duration_compatible(source.duration_ms, target.duration_ms)
+            || source
+                .title
+                .as_ref()
+                .is_some_and(|title| normalize(title) != normalize(&target.title))
+            || source
+                .artist
+                .as_ref()
+                .is_some_and(|artist| normalize(artist) != normalize(&target.artist_credit.display))
+    });
     let identifier_conflict = release_group_conflicts
+        || fingerprint_conflict
         || mappings.iter().any(|mapping| {
             let source = &inspection.tracks[mapping.source_index];
             let target = &candidate.tracks[mapping.candidate_index];
@@ -305,9 +369,13 @@ fn rank(inspection: &Inspection, candidate: CandidateRelease) -> RankedCandidate
         && mappings
             .iter()
             .all(|mapping| mapping.basis == TrackMatchBasis::RecordingId);
+    let fingerprint_identity = mappings
+        .iter()
+        .any(|mapping| mapping.basis == TrackMatchBasis::AudioFingerprint);
     let credible_identity = release_group_agrees
         || album_artist_ids_agree
         || all_recording_ids_agree
+        || fingerprint_identity
         || album_text_identity
         || album_title_and_track_artist_identity
         || loose_text_identity;
@@ -327,6 +395,7 @@ fn rank(inspection: &Inspection, candidate: CandidateRelease) -> RankedCandidate
 fn best_track<'a>(
     source: &InspectedTrack,
     available: &[(usize, &'a ReleaseTrack)],
+    fingerprint_recording_ids: &[String],
 ) -> Option<(usize, &'a ReleaseTrack, TrackMatchBasis)> {
     let exact_id: Vec<_> = source
         .recording_id
@@ -343,6 +412,23 @@ fn best_track<'a>(
             .into_iter()
             .next()
             .map(|(index, track)| (index, track, TrackMatchBasis::RecordingId));
+    }
+
+    let fingerprint_matches = available
+        .iter()
+        .filter(|(_, track)| {
+            track
+                .recording_id
+                .as_ref()
+                .is_some_and(|recording_id| fingerprint_recording_ids.contains(recording_id))
+        })
+        .copied()
+        .collect::<Vec<_>>();
+    if fingerprint_matches.len() == 1 {
+        return fingerprint_matches
+            .into_iter()
+            .next()
+            .map(|(index, track)| (index, track, TrackMatchBasis::AudioFingerprint));
     }
 
     let text_and_duration: Vec<_> = source.title.as_ref().map_or_else(Vec::new, |title| {
@@ -684,6 +770,54 @@ mod tests {
         let decision = MatchPolicy::default().decide(&inspection, vec![candidate]);
 
         assert!(matches!(decision, MatchDecision::Selected { .. }));
+    }
+
+    #[test]
+    fn fingerprint_mapping_with_conflicting_tags_cannot_be_automatic() {
+        let inspection = Inspection {
+            source_label: "song.flac".into(),
+            kind: SourceKind::LooseFile,
+            tracks: vec![InspectedTrack {
+                source_name: "song.flac".into(),
+                title: Some("Different Song".into()),
+                artist: Some("Different Artist".into()),
+                album: None,
+                album_artist: None,
+                artist_ids: Vec::new(),
+                album_artist_ids: Vec::new(),
+                compilation: None,
+                original_year: None,
+                position: None,
+                duration_ms: 200_000,
+                recording_id: None,
+                release_group_id: None,
+            }],
+        };
+        let candidate = CandidateRelease {
+            provider_key: "single".into(),
+            title: "The Song".into(),
+            album_artist: ArtistCredit::single("The Artist"),
+            original_year: Some(1982),
+            kind: ReleaseKind::Single,
+            tracks: vec![ReleaseTrack {
+                title: "The Song".into(),
+                artist_credit: ArtistCredit::single("The Artist"),
+                position: Position::new(1, 1),
+                duration_ms: 200_500,
+                recording_id: Some("recording-1".into()),
+            }],
+            release_group_id: Some("group-1".into()),
+            exact_release_id: None,
+        };
+
+        let decision = MatchPolicy::default().decide_with_fingerprint(
+            &inspection,
+            vec![candidate],
+            &["recording-1".into()],
+            true,
+        );
+
+        assert!(matches!(decision, MatchDecision::NeedsChoice(_)));
     }
 
     #[test]

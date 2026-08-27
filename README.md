@@ -27,9 +27,10 @@ The project is primarily being built for one household workflow, but is public
 because that narrow workflow may also suit other Navidrome and self-hosted music
 users. Public availability must not inflate the deliberately small scope.
 
-Milestones 1, 2, and 3a are implemented. The command can currently inspect one
-album directory or loose audio file, identify it through MusicBrainz, and
-review source or Cover Art Archive artwork without modifying the source:
+Milestones 1, 2, 3a, and 3b are implemented. The command can currently inspect
+one album directory or loose audio file, identify it through MusicBrainz, use
+an AcoustID fingerprint fallback for a difficult standalone track, and review
+source or Cover Art Archive artwork without modifying the source:
 
 ```text
 nix develop -c cargo run -- SOURCE
@@ -71,8 +72,15 @@ file with, for example, `cache_max_mib = 128`. Metadata is fresh for 30 days;
 stale entries remain available as an explicit fallback and least-recently used
 entries are pruned to keep the cache within its limit.
 
-Normal tests never use the network. Maintainers can explicitly exercise the two
-small live adapters without touching music or library paths:
+The Nix development shell supplies the reference `fpcalc` helper used for the
+optional standalone-track fallback. music-groomer calculates at most the first
+120 seconds locally, sends only the compact fingerprint and duration to
+AcoustID, and never submits fingerprints. A raw executable without `fpcalc`
+continues with ordinary MusicBrainz and source metadata after explaining that
+the optional fallback is unavailable.
+
+Normal tests never use the network. Maintainers can explicitly exercise the
+three small live adapters without touching personal music or library paths:
 
 ```text
 nix develop -c cargo test --test live_provider -- --ignored --nocapture

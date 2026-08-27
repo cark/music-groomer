@@ -1,6 +1,8 @@
 use music_groomer::domain::SourceKind;
+use music_groomer::fingerprint::{AudioFingerprinter, FpcalcFingerprinter};
 use music_groomer::provider::{
-    ArtworkProvider, CoverArtArchive, MetadataProvider, MusicBrainzProvider, ProviderSearch,
+    AcoustId, AcoustIdProvider, ArtworkProvider, CoverArtArchive, MetadataProvider,
+    MusicBrainzProvider, ProviderSearch,
 };
 
 #[test]
@@ -41,4 +43,33 @@ fn cover_art_archive_returns_a_decodable_release_group_front() {
 
     assert!(artwork.dimensions.0 > 0);
     assert!(artwork.dimensions.1 > 0);
+}
+
+#[test]
+#[ignore = "explicit live AcoustID smoke test using only the synthetic audio fixture"]
+fn acoustid_accepts_a_fingerprint_from_the_synthetic_fixture() {
+    let temporary = tempfile::TempDir::new().expect("temporary fixture directory should exist");
+    let fixture = temporary.path().join("synthetic-tone.flac");
+    let generated = std::process::Command::new("ffmpeg")
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=20",
+            "-y",
+        ])
+        .arg(&fixture)
+        .status()
+        .expect("ffmpeg should generate the temporary synthetic fixture");
+    assert!(generated.success());
+    let fingerprint = FpcalcFingerprinter::default()
+        .calculate(&fixture, &mut ())
+        .expect("fpcalc should fingerprint the synthetic fixture");
+
+    AcoustId::new()
+        .lookup(&fingerprint, &mut ())
+        .expect("AcoustID should accept a lookup even when the synthetic audio has no match");
 }

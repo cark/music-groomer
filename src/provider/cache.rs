@@ -8,9 +8,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::{DEFAULT_CACHE_MAX_BYTES, METADATA_FRESH_DAYS, ProviderSearch};
+use super::{AcoustIdResponse, DEFAULT_CACHE_MAX_BYTES, METADATA_FRESH_DAYS, ProviderSearch};
 use super::{ProviderArtwork, cover_art_archive};
 use crate::domain::CandidateRelease;
+use crate::fingerprint::AudioFingerprint;
 
 const CACHE_SCHEMA: u8 = 3;
 const MARKER: &str = ".music-groomer-cache";
@@ -103,6 +104,61 @@ impl ProviderCache {
         self.write_json_atomic(&path, &stored)?;
         self.prune()?;
         Ok(())
+    }
+
+    pub fn acoustid(
+        &self,
+        fingerprint: &AudioFingerprint,
+        now: SystemTime,
+    ) -> Result<Option<AcoustIdCacheEntry>, CacheError> {
+        let path = self.acoustid_path(fingerprint);
+        let bytes = match fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(CacheError::Io(path, error)),
+        };
+        let mut stored: StoredAcoustId = serde_json::from_slice(&bytes)
+            .map_err(|error| CacheError::Damaged(path.clone(), error.to_string()))?;
+        if stored.schema != CACHE_SCHEMA {
+            return Err(CacheError::Obsolete {
+                path,
+                found_schema: stored.schema,
+                current_schema: CACHE_SCHEMA,
+            });
+        }
+        let fetched_at = UNIX_EPOCH + Duration::from_secs(stored.fetched_at);
+        stored.accessed_at = unix_seconds(now);
+        let maintenance_warning = self
+            .write_json_atomic(&path, &stored)
+            .and_then(|()| self.prune())
+            .err()
+            .map(|error| error.to_string());
+        Ok(Some(AcoustIdCacheEntry {
+            response: stored.response,
+            fetched_at,
+            freshness: freshness(fetched_at, now),
+            maintenance_warning,
+        }))
+    }
+
+    pub fn store_acoustid(
+        &self,
+        fingerprint: &AudioFingerprint,
+        response: &AcoustIdResponse,
+        now: SystemTime,
+    ) -> Result<(), CacheError> {
+        self.ensure_owned_root()?;
+        let timestamp = unix_seconds(now);
+        self.write_json_atomic(
+            &self.acoustid_path(fingerprint),
+            &StoredAcoustId {
+                schema: CACHE_SCHEMA,
+                fetched_at: timestamp,
+                accessed_at: timestamp,
+                response: response.clone(),
+            },
+        )?;
+        self.prune()
     }
 
     pub fn artwork(
@@ -250,6 +306,32 @@ impl ProviderCache {
                 status.damaged_entries += 1;
             }
         }
+        for path in regular_files(&self.root.join("acoustid"))? {
+            let bytes = match fs::read(&path) {
+                Ok(bytes) => bytes,
+                Err(_) => {
+                    status.damaged_entries += 1;
+                    continue;
+                }
+            };
+            status.total_bytes = status.total_bytes.saturating_add(bytes.len() as u64);
+            status.acoustid_bytes = status.acoustid_bytes.saturating_add(bytes.len() as u64);
+            match serde_json::from_slice::<StoredAcoustId>(&bytes) {
+                Ok(entry) if entry.schema == CACHE_SCHEMA => {
+                    if !entry.response.has_usable_recording_associations() {
+                        status.acoustid_no_matches += 1;
+                    } else if freshness(UNIX_EPOCH + Duration::from_secs(entry.fetched_at), now)
+                        == MetadataFreshness::Fresh
+                    {
+                        status.fresh_acoustid += 1;
+                    } else {
+                        status.stale_acoustid += 1;
+                    }
+                }
+                Ok(_) => status.obsolete_entries += 1,
+                Err(_) => status.damaged_entries += 1,
+            }
+        }
         Ok(status)
     }
 
@@ -277,6 +359,13 @@ impl ProviderCache {
             .root
             .join("metadata")
             .join(format!("{}.json", digest(&encoded))))
+    }
+
+    fn acoustid_path(&self, fingerprint: &AudioFingerprint) -> PathBuf {
+        let identity = format!("{}\n{}", fingerprint.duration_seconds, fingerprint.value);
+        self.root
+            .join("acoustid")
+            .join(format!("{}.json", digest(identity.as_bytes())))
     }
 
     fn ensure_owned_root(&self) -> Result<(), CacheError> {
@@ -384,6 +473,12 @@ impl ProviderCache {
                 .map_err(|error| CacheError::Io(path.clone(), error))?;
             entries.push((path, metadata.len(), accessed));
         }
+        for path in regular_files(&self.root.join("acoustid"))? {
+            let bytes = fs::read(&path).map_err(|error| CacheError::Io(path.clone(), error))?;
+            let accessed = serde_json::from_slice::<StoredAcoustId>(&bytes)
+                .map_or(0, |entry| entry.accessed_at);
+            entries.push((path, bytes.len() as u64, accessed));
+        }
         let mut total = entries.iter().map(|(_, size, _)| size).sum::<u64>();
         entries.sort_by_key(|(_, _, accessed)| *accessed);
         for (path, size, _) in entries {
@@ -400,6 +495,14 @@ impl ProviderCache {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MetadataCacheEntry {
     pub candidates: Vec<CandidateRelease>,
+    pub fetched_at: SystemTime,
+    pub freshness: MetadataFreshness,
+    pub maintenance_warning: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AcoustIdCacheEntry {
+    pub response: AcoustIdResponse,
     pub fetched_at: SystemTime,
     pub freshness: MetadataFreshness,
     pub maintenance_warning: Option<String>,
@@ -427,6 +530,10 @@ pub struct CacheStatus {
     pub artwork_entries: usize,
     pub artwork_bytes: u64,
     pub confirmed_artwork_absences: usize,
+    pub fresh_acoustid: usize,
+    pub stale_acoustid: usize,
+    pub acoustid_no_matches: usize,
+    pub acoustid_bytes: u64,
     pub obsolete_entries: usize,
     pub damaged_entries: usize,
 }
@@ -488,6 +595,14 @@ struct StoredMetadata {
 struct StoredArtworkAbsence {
     schema: u8,
     fetched_at: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredAcoustId {
+    schema: u8,
+    fetched_at: u64,
+    accessed_at: u64,
+    response: AcoustIdResponse,
 }
 
 fn freshness(fetched_at: SystemTime, now: SystemTime) -> MetadataFreshness {

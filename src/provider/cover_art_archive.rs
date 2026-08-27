@@ -1,7 +1,7 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::http::ProviderHttp;
-use super::{ProviderError, ProviderProgress};
+use super::{ProviderError, ProviderName, ProviderProgress};
 use crate::source::ArtworkFormat;
 
 const RETRY_DEADLINE: Duration = Duration::from_secs(60);
@@ -28,7 +28,10 @@ pub struct CoverArtArchive {
 impl CoverArtArchive {
     pub fn new() -> Self {
         Self {
-            http: ProviderHttp::new(),
+            http: ProviderHttp::with_wall_clock_retry(
+                ProviderName::CoverArtArchive,
+                RETRY_DEADLINE,
+            ),
         }
     }
 }
@@ -47,17 +50,15 @@ impl ArtworkProvider for CoverArtArchive {
     ) -> Result<Option<ProviderArtwork>, ProviderError> {
         let url =
             format!("https://coverartarchive.org/release-group/{release_group_id}/front-1200");
-        let bytes = match self.http.get_bytes(
-            &url,
-            "Cover Art Archive front",
-            Duration::ZERO,
-            Instant::now() + RETRY_DEADLINE,
-            progress,
-        ) {
-            Ok(bytes) => bytes,
-            Err(ProviderError::HttpStatus { status: 404, .. }) => return Ok(None),
-            Err(error) => return Err(error),
-        };
+        let bytes =
+            match self
+                .http
+                .get_bytes(&url, "Cover Art Archive front", Duration::ZERO, progress)
+            {
+                Ok(bytes) => bytes,
+                Err(ProviderError::HttpStatus { status: 404, .. }) => return Ok(None),
+                Err(error) => return Err(error),
+            };
         decode(bytes).map(Some)
     }
 }

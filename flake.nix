@@ -20,6 +20,7 @@
             rustfmt
             clippy
             bacon
+            chromaprint
             ffmpeg-headless
           ];
 

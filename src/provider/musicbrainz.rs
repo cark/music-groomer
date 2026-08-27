@@ -1,18 +1,18 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 use super::http::ProviderHttp;
 use super::{
-    MetadataProvider, ProviderError, ProviderProgress, ProviderSearch, ProviderSearchResult,
-    collapse_equivalent,
+    MetadataProvider, ProviderError, ProviderName, ProviderProgress, ProviderSearch,
+    ProviderSearchResult, collapse_equivalent,
 };
 use crate::domain::{Artist, ArtistCredit, CandidateRelease, Position, ReleaseKind, ReleaseTrack};
 
 const API_ROOT: &str = "https://musicbrainz.org/ws/2";
 const REQUEST_SPACING: Duration = Duration::from_secs(1);
-const RETRY_DEADLINE: Duration = Duration::from_secs(60);
+const FAILURE_RETRY_BUDGET: Duration = Duration::from_secs(30);
 const DISCOVERY_GROUP_LIMIT: usize = 8;
 
 trait MusicBrainzHttp {
@@ -21,7 +21,6 @@ trait MusicBrainzHttp {
         url: &str,
         operation: &'static str,
         spacing: Duration,
-        deadline: Instant,
         progress: &mut dyn ProviderProgress,
     ) -> Result<T, ProviderError>;
 }
@@ -32,10 +31,9 @@ impl MusicBrainzHttp for ProviderHttp {
         url: &str,
         operation: &'static str,
         spacing: Duration,
-        deadline: Instant,
         progress: &mut dyn ProviderProgress,
     ) -> Result<T, ProviderError> {
-        ProviderHttp::get_json(self, url, operation, spacing, deadline, progress)
+        ProviderHttp::get_json(self, url, operation, spacing, progress)
     }
 }
 
@@ -51,7 +49,10 @@ impl MusicBrainzProvider {
     pub fn new() -> Self {
         Self {
             client: MusicBrainzClient {
-                http: ProviderHttp::new(),
+                http: ProviderHttp::with_failure_budget(
+                    ProviderName::MusicBrainz,
+                    FAILURE_RETRY_BUDGET,
+                ),
             },
         }
     }
@@ -101,9 +102,9 @@ impl<H: MusicBrainzHttp> MusicBrainzClient<H> {
         )
     }
 
-    fn browse_recording_url(recording_id: &str) -> String {
+    fn browse_recording_url(recording_id: &str, release_type: &str) -> String {
         format!(
-            "{API_ROOT}/release?recording={recording_id}&inc=artist-credits+recordings+release-groups&fmt=json&limit=100"
+            "{API_ROOT}/release?recording={recording_id}&status=official&type={release_type}&inc=artist-credits+recordings+release-groups&fmt=json&limit=100"
         )
     }
 
@@ -111,17 +112,15 @@ impl<H: MusicBrainzHttp> MusicBrainzClient<H> {
         &mut self,
         url: &str,
         operation: &'static str,
-        deadline: Instant,
         progress: &mut dyn ProviderProgress,
     ) -> Result<T, ProviderError> {
         self.http
-            .get_json(url, operation, REQUEST_SPACING, deadline, progress)
+            .get_json(url, operation, REQUEST_SPACING, progress)
     }
 
     fn discover(
         &mut self,
         search: &ProviderSearch,
-        deadline: Instant,
         progress: &mut dyn ProviderProgress,
     ) -> Result<(Vec<String>, Vec<String>), ProviderError> {
         let mut group_ids = Vec::new();
@@ -132,9 +131,8 @@ impl<H: MusicBrainzHttp> MusicBrainzClient<H> {
         } else if !search.recording_ids.is_empty() {
             for recording_id in &search.recording_ids {
                 let browse: ReleaseBrowse = self.request(
-                    &Self::browse_recording_url(recording_id),
+                    &Self::browse_recording_url(recording_id, "single"),
                     "MusicBrainz recording releases",
-                    deadline,
                     progress,
                 )?;
                 for release in browse
@@ -167,7 +165,6 @@ impl<H: MusicBrainzHttp> MusicBrainzClient<H> {
             let found: ReleaseGroupSearch = self.request(
                 &Self::textual_search_url(search, true)?,
                 "MusicBrainz release-group search",
-                deadline,
                 progress,
             )?;
             group_ids.extend(
@@ -187,7 +184,6 @@ impl<H: MusicBrainzHttp> MusicBrainzClient<H> {
                 let found: ReleaseGroupSearch = self.request(
                     &Self::textual_search_url(search, false)?,
                     "MusicBrainz release-group search",
-                    deadline,
                     progress,
                 )?;
                 group_ids.extend(
@@ -209,7 +205,6 @@ impl<H: MusicBrainzHttp> MusicBrainzClient<H> {
                 let found: ReleaseGroupSearch = self.request(
                     &Self::textual_search_url(&album_fallback, false)?,
                     "MusicBrainz album fallback search",
-                    deadline,
                     progress,
                 )?;
                 group_ids.extend(
@@ -226,11 +221,47 @@ impl<H: MusicBrainzHttp> MusicBrainzClient<H> {
 }
 
 impl<H: MusicBrainzHttp> MusicBrainzClient<H> {
+    fn browse_loose_recording_candidates(
+        &mut self,
+        recording_ids: &[String],
+        progress: &mut dyn ProviderProgress,
+    ) -> Result<Vec<CandidateRelease>, ProviderError> {
+        let mut candidates = Vec::new();
+        for recording_id in recording_ids {
+            let singles: ReleaseBrowse = self.request(
+                &Self::browse_recording_url(recording_id, "single"),
+                "MusicBrainz official single releases",
+                progress,
+            )?;
+            let mut recording_candidates = singles
+                .releases
+                .into_iter()
+                .filter(ReleaseDetail::is_official)
+                .filter_map(ReleaseDetail::into_candidate)
+                .collect::<Vec<_>>();
+            if recording_candidates.is_empty() {
+                let albums: ReleaseBrowse = self.request(
+                    &Self::browse_recording_url(recording_id, "album"),
+                    "MusicBrainz official album releases",
+                    progress,
+                )?;
+                recording_candidates.extend(
+                    albums
+                        .releases
+                        .into_iter()
+                        .filter(ReleaseDetail::is_official)
+                        .filter_map(ReleaseDetail::into_candidate),
+                );
+            }
+            candidates.extend(recording_candidates);
+        }
+        Ok(collapse_equivalent(candidates))
+    }
+
     fn browse_candidates(
         &mut self,
         search: &ProviderSearch,
         group_ids: Vec<String>,
-        deadline: Instant,
         progress: &mut dyn ProviderProgress,
     ) -> Result<Vec<CandidateRelease>, ProviderError> {
         let mut candidates = Vec::new();
@@ -238,7 +269,6 @@ impl<H: MusicBrainzHttp> MusicBrainzClient<H> {
             let browse: ReleaseBrowse = self.request(
                 &Self::browse_group_url(&group_id),
                 "MusicBrainz release variants",
-                deadline,
                 progress,
             )?;
             candidates.extend(
@@ -264,11 +294,17 @@ impl<H: MusicBrainzHttp> MusicBrainzClient<H> {
         if !search.is_usable() {
             return Err(ProviderError::InsufficientEvidence);
         }
-        let deadline = Instant::now() + RETRY_DEADLINE;
-        let (group_ids, mut warnings) = self.discover(search, deadline, progress)?;
+        if search.kind == crate::domain::SourceKind::LooseFile && !search.recording_ids.is_empty() {
+            return Ok(ProviderSearchResult {
+                candidates: self
+                    .browse_loose_recording_candidates(&search.recording_ids, progress)?,
+                warnings: Vec::new(),
+            });
+        }
+        let (group_ids, mut warnings) = self.discover(search, progress)?;
         let identifier_discovery =
             search.release_group_id.is_some() || !search.recording_ids.is_empty();
-        let mut candidates = self.browse_candidates(search, group_ids, deadline, progress)?;
+        let mut candidates = self.browse_candidates(search, group_ids, progress)?;
 
         if identifier_discovery && candidates.is_empty() {
             warnings.push(if search.release_group_id.is_some() {
@@ -280,8 +316,8 @@ impl<H: MusicBrainzHttp> MusicBrainzClient<H> {
             fallback.release_group_id = None;
             fallback.recording_ids.clear();
             if fallback.artist.is_some() && (fallback.album.is_some() || fallback.title.is_some()) {
-                let (groups, _) = self.discover(&fallback, deadline, progress)?;
-                candidates.extend(self.browse_candidates(search, groups, deadline, progress)?);
+                let (groups, _) = self.discover(&fallback, progress)?;
+                candidates.extend(self.browse_candidates(search, groups, progress)?);
             }
         }
 
@@ -297,9 +333,9 @@ impl<H: MusicBrainzHttp> MusicBrainzClient<H> {
             ));
             fallback.release_group_id = None;
             fallback.recording_ids.clear();
-            let (groups, fallback_warnings) = self.discover(&fallback, deadline, progress)?;
+            let (groups, fallback_warnings) = self.discover(&fallback, progress)?;
             warnings.extend(fallback_warnings);
-            candidates.extend(self.browse_candidates(&fallback, groups, deadline, progress)?);
+            candidates.extend(self.browse_candidates(&fallback, groups, progress)?);
         }
 
         Ok(ProviderSearchResult {
@@ -546,7 +582,6 @@ mod tests {
             url: &str,
             _operation: &'static str,
             _spacing: Duration,
-            _deadline: Instant,
             _progress: &mut dyn ProviderProgress,
         ) -> Result<T, ProviderError> {
             self.urls.push(url.to_owned());
@@ -614,6 +649,54 @@ mod tests {
         assert!(provider.http.urls[0].contains("recording=recording-id"));
         assert!(!provider.http.urls[0].contains("rid%3A"));
         assert!(provider.http.urls[1].contains("release-group=group-1"));
+    }
+
+    #[test]
+    fn loose_recording_prefers_one_bounded_official_single_page() {
+        let mut search = search();
+        search.kind = crate::domain::SourceKind::LooseFile;
+        search.recording_ids = vec!["recording-id".into()];
+        let mut provider = MusicBrainzClient {
+            http: FakeHttp {
+                responses: VecDeque::from([serde_json::json!({
+                    "releases": [release_with_type("Single")]
+                })]),
+                urls: Vec::new(),
+            },
+        };
+
+        let result = provider.search(&search, &mut ()).unwrap();
+
+        assert_eq!(result.candidates.len(), 1);
+        assert_eq!(result.candidates[0].kind, ReleaseKind::Single);
+        assert_eq!(provider.http.urls.len(), 1);
+        assert!(provider.http.urls[0].contains("recording=recording-id"));
+        assert!(provider.http.urls[0].contains("status=official"));
+        assert!(provider.http.urls[0].contains("type=single"));
+        assert!(provider.http.urls[0].contains("limit=100"));
+    }
+
+    #[test]
+    fn loose_recording_browses_one_album_page_only_when_no_single_exists() {
+        let mut search = search();
+        search.kind = crate::domain::SourceKind::LooseFile;
+        search.recording_ids = vec!["recording-id".into()];
+        let mut provider = MusicBrainzClient {
+            http: FakeHttp {
+                responses: VecDeque::from([
+                    serde_json::json!({"releases": []}),
+                    serde_json::json!({"releases": [release(1, "Track", "Official")]}),
+                ]),
+                urls: Vec::new(),
+            },
+        };
+
+        let result = provider.search(&search, &mut ()).unwrap();
+
+        assert_eq!(result.candidates.len(), 1);
+        assert_eq!(provider.http.urls.len(), 2);
+        assert!(provider.http.urls[0].contains("type=single"));
+        assert!(provider.http.urls[1].contains("type=album"));
     }
 
     #[test]

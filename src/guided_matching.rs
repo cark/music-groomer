@@ -2,12 +2,15 @@ use std::io;
 use std::time::SystemTime;
 
 use crate::artwork_viewer::ArtworkViewer;
+use crate::fingerprint::{AudioFingerprinter, FingerprintError, FingerprintProgress};
+use crate::identification::{FingerprintEvidence, needs_fingerprint};
 use crate::matching::MatchPolicy;
 use crate::matching::RankedCandidate;
 use crate::matching_ui::{MetadataSelection, choose, revise};
 use crate::provider::{
-    ArtworkLookup, ArtworkProvider, ArtworkResolver, LookupOrigin, MetadataProvider,
-    MetadataResolver, ProviderCache, ProviderError, ProviderEvent, ProviderProgress, WaitReason,
+    AcoustIdLookupOrigin, AcoustIdProvider, AcoustIdResolver, ArtworkLookup, ArtworkProvider,
+    ArtworkResolver, LookupOrigin, MetadataProvider, MetadataResolver, ProviderCache,
+    ProviderError, ProviderEvent, ProviderProgress, WaitReason, collapse_equivalent,
     equivalent_groomed_result, source_inspection,
 };
 use crate::source::SourceInspection;
@@ -18,6 +21,7 @@ pub struct GuidedMatchResult {
     pub metadata_provenance: MetadataProvenance,
     pub candidates: Vec<RankedCandidate>,
     pub artwork: ArtworkSelection,
+    pub identification: Option<FingerprintEvidence>,
     pub warnings: Vec<String>,
 }
 
@@ -25,6 +29,8 @@ pub struct GuidedMatchResult {
 pub enum MetadataProvenance {
     MusicBrainz,
     MusicBrainzWithSourceYear(u16),
+    MusicBrainzWithFingerprint,
+    MusicBrainzWithFingerprintAndSourceYear(u16),
     ExistingTags { artwork_via_source_id: bool },
     None,
 }
@@ -45,6 +51,99 @@ pub fn run<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
     cache: ProviderCache,
     viewer: &mut V,
 ) -> io::Result<GuidedMatchResult> {
+    run_inner(
+        interaction,
+        source,
+        offline,
+        RunProviders {
+            metadata: metadata_provider,
+            artwork: artwork_provider,
+            identification: None,
+        },
+        cache,
+        viewer,
+    )
+}
+
+pub struct GuidedProviders<M, A, F, I> {
+    metadata: M,
+    artwork: A,
+    fingerprinter: F,
+    acoustid: I,
+}
+
+impl<M, A, F, I> GuidedProviders<M, A, F, I> {
+    pub fn new(metadata: M, artwork: A, fingerprinter: F, acoustid: I) -> Self {
+        Self {
+            metadata,
+            artwork,
+            fingerprinter,
+            acoustid,
+        }
+    }
+}
+
+pub fn run_with_identification<
+    M: MetadataProvider,
+    A: ArtworkProvider,
+    V: ArtworkViewer,
+    F: AudioFingerprinter,
+    I: AcoustIdProvider,
+>(
+    interaction: &mut impl Interaction,
+    source: &SourceInspection,
+    offline: bool,
+    providers: GuidedProviders<M, A, F, I>,
+    cache: ProviderCache,
+    viewer: &mut V,
+) -> io::Result<GuidedMatchResult> {
+    let GuidedProviders {
+        metadata,
+        artwork,
+        mut fingerprinter,
+        mut acoustid,
+    } = providers;
+    run_inner(
+        interaction,
+        source,
+        offline,
+        RunProviders {
+            metadata,
+            artwork,
+            identification: Some(IdentificationAdapters {
+                fingerprinter: &mut fingerprinter,
+                acoustid_provider: &mut acoustid,
+            }),
+        },
+        cache,
+        viewer,
+    )
+}
+
+struct IdentificationAdapters<'a> {
+    fingerprinter: &'a mut dyn AudioFingerprinter,
+    acoustid_provider: &'a mut dyn AcoustIdProvider,
+}
+
+struct RunProviders<'a, M, A> {
+    metadata: M,
+    artwork: A,
+    identification: Option<IdentificationAdapters<'a>>,
+}
+
+fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
+    interaction: &mut impl Interaction,
+    source: &SourceInspection,
+    offline: bool,
+    providers: RunProviders<'_, M, A>,
+    cache: ProviderCache,
+    viewer: &mut V,
+) -> io::Result<GuidedMatchResult> {
+    let RunProviders {
+        metadata,
+        artwork,
+        identification: mut identification_adapters,
+    } = providers;
     let (inspection, search) = source_inspection(source);
     interaction.blank()?;
     if offline {
@@ -53,7 +152,7 @@ pub fn run<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
         interaction.heading("Checking metadata and provider cache")?;
     }
 
-    let mut metadata_resolver = MetadataResolver::new(metadata_provider, cache.clone());
+    let mut metadata_resolver = MetadataResolver::new(metadata, cache.clone());
     let lookup = {
         let mut progress = InteractionProgress(interaction);
         metadata_resolver.lookup(&search, offline, false, SystemTime::now(), &mut progress)
@@ -64,7 +163,91 @@ pub fn run<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
     warnings.extend(identifier_warnings(&inspection));
     warnings.extend(lookup.warnings);
     deduplicate(&mut warnings);
-    let decision = MatchPolicy::default().decide(&inspection, lookup.candidates);
+    let mut provider_candidates = lookup.candidates;
+    let mut decision = MatchPolicy::default().decide(&inspection, provider_candidates.clone());
+    let mut identification = None;
+    if needs_fingerprint(source, &inspection, &decision)
+        && let Some(adapters) = identification_adapters.as_mut()
+    {
+        let audio_path = selected_audio_path(source);
+        let fingerprint = {
+            let mut progress = InteractionProgress(interaction);
+            adapters.fingerprinter.calculate(&audio_path, &mut progress)
+        };
+        match fingerprint {
+            Ok(fingerprint) => {
+                interaction.prose(
+                    "  AcoustID receives this compact fingerprint and duration, not the audio file.",
+                )?;
+                let acoustid_lookup = {
+                    let mut resolver =
+                        AcoustIdResolver::new(&mut *adapters.acoustid_provider, cache.clone());
+                    let mut progress = InteractionProgress(interaction);
+                    resolver.lookup(
+                        &fingerprint,
+                        offline,
+                        false,
+                        SystemTime::now(),
+                        &mut progress,
+                    )
+                };
+                show_acoustid_origin(interaction, acoustid_lookup.origin)?;
+                show_warnings(interaction, &acoustid_lookup.warnings)?;
+                warnings.extend(acoustid_lookup.warnings);
+                if let Some(response) = acoustid_lookup.response {
+                    let evidence = FingerprintEvidence::from_response(
+                        response,
+                        &inspection,
+                        fingerprint.duration_seconds,
+                    );
+                    show_identification_summary(interaction, &evidence)?;
+                    if evidence.unusually_ambiguous {
+                        warnings.push(
+                            "Audio fingerprint produced more than five qualifying MusicBrainz recordings; only the five strongest were resolved"
+                                .into(),
+                        );
+                    }
+                    let recording_ids = evidence.recording_ids();
+                    if !recording_ids.is_empty() {
+                        let mut recording_search = search.clone();
+                        recording_search.kind = crate::domain::SourceKind::LooseFile;
+                        recording_search.release_group_id = None;
+                        recording_search.recording_ids = recording_ids.clone();
+                        let resolved = {
+                            let mut progress = InteractionProgress(interaction);
+                            metadata_resolver.lookup(
+                                &recording_search,
+                                offline,
+                                false,
+                                SystemTime::now(),
+                                &mut progress,
+                            )
+                        };
+                        show_lookup_origin(interaction, resolved.origin)?;
+                        show_warnings(interaction, &resolved.warnings)?;
+                        warnings.extend(resolved.warnings);
+                        provider_candidates.extend(resolved.candidates);
+                        provider_candidates = collapse_equivalent(provider_candidates);
+                        decision = MatchPolicy::default().decide_with_fingerprint(
+                            &inspection,
+                            provider_candidates.clone(),
+                            &recording_ids,
+                            evidence.automatic_recording_id.is_some(),
+                        );
+                    }
+                    identification = Some(evidence);
+                }
+            }
+            Err(error) => {
+                let warning = format!(
+                    "Audio fingerprint identification is unavailable ({error}); keeping provider and source metadata"
+                );
+                interaction.warning(format!("Warning: {warning}"))?;
+                warnings.push(warning);
+            }
+        }
+        deduplicate(&mut warnings);
+    }
     let mut candidates = decision.candidates().to_vec();
     let mut metadata = choose(interaction, &inspection, decision)?;
     if metadata == MetadataSelection::Cancelled {
@@ -73,12 +256,13 @@ pub fn run<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
             metadata_provenance: MetadataProvenance::None,
             candidates,
             artwork: ArtworkSelection::None,
+            identification,
             warnings,
         });
     }
     let mut source_year_fallback = add_year_fallback(&inspection, &mut metadata, &mut warnings);
 
-    let mut artwork_resolver = ArtworkResolver::new(artwork_provider, cache);
+    let mut artwork_resolver = ArtworkResolver::new(artwork, cache.clone());
     let mut archive_artwork = fetch_artwork(
         interaction,
         &mut artwork_resolver,
@@ -125,6 +309,7 @@ pub fn run<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
                     &candidates,
                     &mut metadata,
                     &warnings,
+                    identification.as_ref(),
                 )?;
                 if changed {
                     source_year_fallback =
@@ -157,28 +342,58 @@ pub fn run<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
                 )?;
             }
             "f" | "refresh" if !offline => {
-                let refreshed = {
-                    let mut progress = InteractionProgress(interaction);
-                    metadata_resolver.lookup(&search, false, true, SystemTime::now(), &mut progress)
+                let refreshed_decision = if identification.is_some() {
+                    if let Some(adapters) = identification_adapters.as_mut() {
+                        refresh_fingerprint_identification(
+                            interaction,
+                            source,
+                            &mut metadata_resolver,
+                            &cache,
+                            adapters,
+                            &mut warnings,
+                        )?
+                        .and_then(|refreshed| {
+                            identification = Some(refreshed.evidence);
+                            refreshed.decision
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    let refreshed = {
+                        let mut progress = InteractionProgress(interaction);
+                        metadata_resolver.lookup(
+                            &search,
+                            false,
+                            true,
+                            SystemTime::now(),
+                            &mut progress,
+                        )
+                    };
+                    show_lookup_origin(interaction, refreshed.origin)?;
+                    show_warnings(interaction, &refreshed.warnings)?;
+                    warnings.extend(refreshed.warnings);
+                    Some(MatchPolicy::default().decide(&inspection, refreshed.candidates))
                 };
-                show_lookup_origin(interaction, refreshed.origin)?;
-                show_warnings(interaction, &refreshed.warnings)?;
-                warnings.extend(refreshed.warnings.clone());
                 deduplicate(&mut warnings);
-                let refreshed_decision =
-                    MatchPolicy::default().decide(&inspection, refreshed.candidates);
-                candidates = refreshed_decision.candidates().to_vec();
-                let refreshed_selection = choose(interaction, &inspection, refreshed_decision)?;
-                let metadata_replaced = if refreshed_selection == MetadataSelection::Cancelled {
-                    interaction.prose("Current preview kept unchanged.")?;
-                    false
-                } else if same_result(&metadata, &refreshed_selection) {
-                    interaction.success("Provider data is current; the preview did not change.")?;
-                    metadata = refreshed_selection;
-                    true
-                } else if confirm_refreshed(interaction)? {
-                    metadata = refreshed_selection;
-                    true
+                let metadata_replaced = if let Some(refreshed_decision) = refreshed_decision {
+                    candidates = refreshed_decision.candidates().to_vec();
+                    let refreshed_selection = choose(interaction, &inspection, refreshed_decision)?;
+                    if refreshed_selection == MetadataSelection::Cancelled {
+                        interaction.prose("Current preview kept unchanged.")?;
+                        false
+                    } else if same_result(&metadata, &refreshed_selection) {
+                        interaction
+                            .success("Provider data is current; the preview did not change.")?;
+                        metadata = refreshed_selection;
+                        true
+                    } else if confirm_refreshed(interaction)? {
+                        metadata = refreshed_selection;
+                        true
+                    } else {
+                        interaction.prose("Current preview kept unchanged.")?;
+                        false
+                    }
                 } else {
                     interaction.prose("Current preview kept unchanged.")?;
                     false
@@ -228,7 +443,18 @@ pub fn run<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
         }
     }
 
+    let selected_has_fingerprint = matches!(
+        &metadata,
+        MetadataSelection::Provider(selected)
+            if identification
+                .as_ref()
+                .is_some_and(|evidence| evidence.supports_candidate(selected))
+    );
     let metadata_provenance = match &metadata {
+        MetadataSelection::Provider(_) if selected_has_fingerprint => source_year_fallback.map_or(
+            MetadataProvenance::MusicBrainzWithFingerprint,
+            MetadataProvenance::MusicBrainzWithFingerprintAndSourceYear,
+        ),
         MetadataSelection::Provider(_) => source_year_fallback.map_or(
             MetadataProvenance::MusicBrainz,
             MetadataProvenance::MusicBrainzWithSourceYear,
@@ -243,8 +469,93 @@ pub fn run<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
         metadata_provenance,
         candidates,
         artwork,
+        identification,
         warnings,
     })
+}
+
+struct RefreshedIdentification {
+    evidence: FingerprintEvidence,
+    decision: Option<crate::matching::MatchDecision>,
+}
+
+fn refresh_fingerprint_identification<M: MetadataProvider>(
+    interaction: &mut impl Interaction,
+    source: &SourceInspection,
+    metadata_resolver: &mut MetadataResolver<M>,
+    cache: &ProviderCache,
+    adapters: &mut IdentificationAdapters<'_>,
+    warnings: &mut Vec<String>,
+) -> io::Result<Option<RefreshedIdentification>> {
+    let (inspection, search) = source_inspection(source);
+    let fingerprint = {
+        let mut progress = InteractionProgress(interaction);
+        adapters
+            .fingerprinter
+            .calculate(&selected_audio_path(source), &mut progress)
+    };
+    let fingerprint = match fingerprint {
+        Ok(fingerprint) => fingerprint,
+        Err(error) => {
+            let warning = format!(
+                "Audio fingerprint refresh failed ({error}); keeping the current identification"
+            );
+            interaction.warning(format!("Warning: {warning}"))?;
+            warnings.push(warning);
+            return Ok(None);
+        }
+    };
+    interaction
+        .prose("  AcoustID receives this compact fingerprint and duration, not the audio file.")?;
+    let lookup = {
+        let mut resolver = AcoustIdResolver::new(&mut *adapters.acoustid_provider, cache.clone());
+        let mut progress = InteractionProgress(interaction);
+        resolver.lookup(&fingerprint, false, true, SystemTime::now(), &mut progress)
+    };
+    show_acoustid_origin(interaction, lookup.origin)?;
+    show_warnings(interaction, &lookup.warnings)?;
+    warnings.extend(lookup.warnings);
+    let Some(response) = lookup.response else {
+        return Ok(None);
+    };
+    let evidence =
+        FingerprintEvidence::from_response(response, &inspection, fingerprint.duration_seconds);
+    show_identification_summary(interaction, &evidence)?;
+    let recording_ids = evidence.recording_ids();
+    if recording_ids.is_empty() {
+        return Ok(Some(RefreshedIdentification {
+            evidence,
+            decision: None,
+        }));
+    }
+    let mut recording_search = search;
+    recording_search.kind = crate::domain::SourceKind::LooseFile;
+    recording_search.release_group_id = None;
+    recording_search.recording_ids = recording_ids.clone();
+    let resolved = {
+        let mut progress = InteractionProgress(interaction);
+        metadata_resolver.lookup(
+            &recording_search,
+            false,
+            true,
+            SystemTime::now(),
+            &mut progress,
+        )
+    };
+    show_lookup_origin(interaction, resolved.origin)?;
+    show_warnings(interaction, &resolved.warnings)?;
+    warnings.extend(resolved.warnings);
+    let candidates = collapse_equivalent(resolved.candidates);
+    let decision = MatchPolicy::default().decide_with_fingerprint(
+        &inspection,
+        candidates,
+        &recording_ids,
+        evidence.automatic_recording_id.is_some(),
+    );
+    Ok(Some(RefreshedIdentification {
+        evidence,
+        decision: Some(decision),
+    }))
 }
 
 fn add_year_fallback(
@@ -514,11 +825,17 @@ fn review(
     candidates: &[RankedCandidate],
     metadata: &mut MetadataSelection,
     warnings: &[String],
+    identification: Option<&FingerprintEvidence>,
 ) -> io::Result<bool> {
     loop {
-        let answer = interaction.prompt(UiLine::menu_prompt(
-            "Review: [s] Source files and tags  [m] Metadata  [w] Warnings  [b] Back: ",
-        ))?;
+        let identification_action = if identification.is_some() {
+            "  [i] Identification"
+        } else {
+            ""
+        };
+        let answer = interaction.prompt(UiLine::menu_prompt(format!(
+            "Review: [s] Source files and tags  [m] Metadata{identification_action}  [w] Warnings  [b] Back: "
+        )))?;
         match answer.to_ascii_lowercase().as_str() {
             "s" | "source" => show_source_review(interaction, source)?,
             "m" | "metadata" => {
@@ -534,8 +851,12 @@ fn review(
                     show_warnings(interaction, warnings)?;
                 }
             }
+            "i" | "identification" if identification.is_some() => {
+                show_identification_details(interaction, identification.expect("checked above"))?;
+            }
             "" | "b" | "back" => return Ok(false),
-            _ => interaction.error("Please choose Source, Metadata, Warnings, or Back.")?,
+            _ => interaction
+                .error("Please choose Source, Metadata, Identification, Warnings, or Back.")?,
         }
     }
 }
@@ -738,8 +1059,90 @@ fn show_lookup_origin(interaction: &mut impl Interaction, origin: LookupOrigin) 
         LookupOrigin::OfflineStaleCache => "Using stale cached metadata in offline mode.",
         LookupOrigin::OfflineMiss => "No cached metadata is available in offline mode.",
         LookupOrigin::ProviderUnavailable => "MusicBrainz metadata is unavailable.",
+        LookupOrigin::InsufficientEvidence => {
+            "MusicBrainz lookup skipped; the source has too little metadata."
+        }
     };
     interaction.success(message)
+}
+
+fn show_acoustid_origin(
+    interaction: &mut impl Interaction,
+    origin: AcoustIdLookupOrigin,
+) -> io::Result<()> {
+    let message = match origin {
+        AcoustIdLookupOrigin::Live => "AcoustID lookup completed.",
+        AcoustIdLookupOrigin::Refreshed => "AcoustID identification refreshed.",
+        AcoustIdLookupOrigin::FreshCache => {
+            "Fresh identification cache hit; AcoustID was not contacted."
+        }
+        AcoustIdLookupOrigin::StaleFallback => {
+            "Using stale cached identification after AcoustID refresh failure."
+        }
+        AcoustIdLookupOrigin::OfflineStaleCache => {
+            "Using stale cached identification in offline mode."
+        }
+        AcoustIdLookupOrigin::OfflineMiss => {
+            "No cached audio identification is available in offline mode."
+        }
+        AcoustIdLookupOrigin::ProviderUnavailable => "AcoustID identification is unavailable.",
+    };
+    interaction.success(message)
+}
+
+fn show_identification_summary(
+    interaction: &mut impl Interaction,
+    evidence: &FingerprintEvidence,
+) -> io::Result<()> {
+    if evidence.recordings.is_empty() {
+        if evidence.recognized_without_recording {
+            interaction.warning(
+                "AcoustID recognized the audio but has no MusicBrainz recording association.",
+            )
+        } else {
+            interaction.warning("Audio fingerprint found no usable recording match.")
+        }
+    } else if evidence.recordings.len() == 1 {
+        interaction.success("Audio fingerprint supports this recording.")
+    } else {
+        interaction.warning("Audio fingerprint was ambiguous; the candidate releases need review.")
+    }
+}
+
+fn show_identification_details(
+    interaction: &mut impl Interaction,
+    evidence: &FingerprintEvidence,
+) -> io::Result<()> {
+    interaction.blank()?;
+    interaction.heading("Audio identification evidence")?;
+    interaction.field("Provider", "AcoustID lookup; fingerprint and duration only")?;
+    if evidence.recordings.is_empty() {
+        return interaction.field("MusicBrainz recordings", "none");
+    }
+    for recording in &evidence.recordings {
+        interaction.field("MusicBrainz recording", &recording.recording_id)?;
+        for association in &recording.associations {
+            interaction.prose(format!(
+                "    AcoustID {} — raw score {:.3}",
+                association.result_id, association.score
+            ))?;
+        }
+    }
+    Ok(())
+}
+
+fn selected_audio_path(source: &SourceInspection) -> std::path::PathBuf {
+    if source.kind == crate::domain::SourceKind::LooseFile {
+        source.source.clone()
+    } else {
+        source.source.join(
+            &source
+                .audio
+                .first()
+                .expect("identification requires one inspected audio file")
+                .relative_path,
+        )
+    }
 }
 
 fn show_artwork_origin(
@@ -773,15 +1176,20 @@ struct InteractionProgress<'a, I>(&'a mut I);
 impl<I: Interaction> ProviderProgress for InteractionProgress<'_, I> {
     fn event(&mut self, event: ProviderEvent) -> Result<(), ProviderError> {
         let message = match event {
-            ProviderEvent::Requesting(operation) => format!("  {operation}..."),
+            ProviderEvent::Requesting {
+                provider: _,
+                operation,
+            } => format!("  {operation}..."),
             ProviderEvent::Waiting {
+                provider,
                 seconds,
                 reason: WaitReason::RateLimit,
-            } => format!("  Waiting {seconds}s for MusicBrainz's rate limit..."),
+            } => format!("  Waiting {seconds}s for {provider}'s rate limit..."),
             ProviderEvent::Waiting {
+                provider,
                 seconds,
                 reason: WaitReason::Retry,
-            } => format!("  Provider unavailable; retrying in {seconds}s (Ctrl-C exits)..."),
+            } => format!("  {provider} unavailable; retrying in {seconds}s (Ctrl-C exits)..."),
             ProviderEvent::RetryingTitle {
                 original,
                 simplified,
@@ -792,6 +1200,22 @@ impl<I: Interaction> ProviderProgress for InteractionProgress<'_, I> {
         self.0
             .prose(message)
             .map_err(|error| ProviderError::Progress(error.to_string()))
+    }
+}
+
+impl<I: Interaction> FingerprintProgress for InteractionProgress<'_, I> {
+    fn calculating(&mut self, audio: &std::path::Path) -> Result<(), FingerprintError> {
+        self.0
+            .present(
+                UiLine::new()
+                    .with(
+                        SemanticRole::Prose,
+                        "  Calculating local audio fingerprint for ",
+                    )
+                    .with(SemanticRole::Path, audio.display().to_string())
+                    .with(SemanticRole::Prose, " (up to 120 seconds of audio)..."),
+            )
+            .map_err(|error| FingerprintError::Progress(error.to_string()))
     }
 }
 

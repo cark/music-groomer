@@ -8,11 +8,12 @@ use clap::{CommandFactory, Parser};
 use music_groomer::artwork_viewer::SystemArtworkViewer;
 use music_groomer::config::AppConfig;
 use music_groomer::demo::{self, DemoScenario};
+use music_groomer::fingerprint::FpcalcFingerprinter;
 use music_groomer::guided_matching;
 use music_groomer::inspection_ui;
 use music_groomer::matching_ui::{MetadataSelection, coherent_existing_metadata};
 use music_groomer::provider::{
-    CoverArtArchive, MusicBrainzProvider, ProviderCache, source_inspection,
+    AcoustId, CoverArtArchive, MusicBrainzProvider, ProviderCache, source_inspection,
 };
 use music_groomer::source::SourceInspector;
 use music_groomer::terminal::{Interaction, StdioInteraction, UiLine};
@@ -110,6 +111,16 @@ fn show_cache_status(cache: &ProviderCache) -> Result<(), String> {
                 status.confirmed_artwork_absences
             ),
         )?;
+        interaction.field(
+            "AcoustID",
+            format!(
+                "{} fresh, {} stale, {} cached no-match; {}",
+                status.fresh_acoustid,
+                status.stale_acoustid,
+                status.acoustid_no_matches,
+                byte_count(status.acoustid_bytes)
+            ),
+        )?;
         interaction.field("Obsolete entries", status.obsolete_entries.to_string())?;
         interaction.field("Damaged entries", status.damaged_entries.to_string())
     })
@@ -196,12 +207,18 @@ fn run_inspection(
         let config = AppConfig::load().map_err(|error| error.to_string())?;
         let cache = provider_cache(&config, cache_directory)?;
         let mut viewer = SystemArtworkViewer::new();
-        let result = guided_matching::run(
+        let mut fingerprinter = FpcalcFingerprinter::default();
+        let mut acoustid = AcoustId::new();
+        let result = guided_matching::run_with_identification(
             &mut interaction,
             &inspection,
             offline,
-            MusicBrainzProvider::new(),
-            CoverArtArchive::new(),
+            guided_matching::GuidedProviders::new(
+                MusicBrainzProvider::new(),
+                CoverArtArchive::new(),
+                &mut fingerprinter,
+                &mut acoustid,
+            ),
             cache,
             &mut viewer,
         )

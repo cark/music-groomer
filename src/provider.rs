@@ -1,3 +1,5 @@
+mod acoustid;
+mod acoustid_lookup;
 mod artwork_lookup;
 mod cache;
 mod cover_art_archive;
@@ -6,16 +8,20 @@ mod lookup;
 mod musicbrainz;
 mod search;
 
+pub use acoustid::{
+    ACOUSTID_USABLE_SCORE, AcoustId, AcoustIdProvider, AcoustIdResponse, AcoustIdResult,
+};
+pub use acoustid_lookup::{AcoustIdLookup, AcoustIdLookupOrigin, AcoustIdResolver};
 pub use artwork_lookup::{ArtworkLookup, ArtworkLookupOrigin, ArtworkResolver};
 pub use cache::{
-    ArtworkCacheEntry, CacheError, CacheStatus, MetadataCacheEntry, MetadataFreshness,
-    ProviderCache,
+    AcoustIdCacheEntry, ArtworkCacheEntry, CacheError, CacheStatus, MetadataCacheEntry,
+    MetadataFreshness, ProviderCache,
 };
 pub use cover_art_archive::{ArtworkProvider, CoverArtArchive, ProviderArtwork};
 pub use lookup::{LookupOrigin, MetadataLookup, MetadataResolver};
 pub use musicbrainz::MusicBrainzProvider;
 pub use search::{
-    MetadataProvider, ProviderError, ProviderEvent, ProviderProgress, ProviderSearch,
+    MetadataProvider, ProviderError, ProviderEvent, ProviderName, ProviderProgress, ProviderSearch,
     ProviderSearchResult, WaitReason, source_inspection,
 };
 

@@ -5,6 +5,8 @@ use tempfile::TempDir;
 
 use super::*;
 use crate::domain::{ArtistCredit, ReleaseKind, SourceKind};
+use crate::fingerprint::AudioFingerprint;
+use crate::provider::{AcoustIdResponse, AcoustIdResult};
 
 #[test]
 fn fresh_and_stale_entries_are_distinguished_with_controlled_time() {
@@ -204,6 +206,48 @@ fn confirmed_artwork_absence_is_fresh_for_thirty_days_and_counted_separately() {
     let status = cache.status(UNIX_EPOCH).unwrap();
     assert_eq!(status.artwork_entries, 0);
     assert_eq!(status.confirmed_artwork_absences, 1);
+}
+
+#[test]
+fn acoustid_matches_and_no_matches_share_status_pruning_and_clear() {
+    let temporary = TempDir::new().unwrap();
+    let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+    let matched = AudioFingerprint {
+        duration_seconds: 120,
+        value: "matched-fingerprint".into(),
+    };
+    let no_match = AudioFingerprint {
+        duration_seconds: 121,
+        value: "no-match-fingerprint".into(),
+    };
+    cache
+        .store_acoustid(
+            &matched,
+            &AcoustIdResponse {
+                results: vec![AcoustIdResult {
+                    id: "result".into(),
+                    score: 0.95,
+                    recording_ids: vec!["recording".into()],
+                }],
+            },
+            UNIX_EPOCH,
+        )
+        .unwrap();
+    cache
+        .store_acoustid(&no_match, &AcoustIdResponse::default(), UNIX_EPOCH)
+        .unwrap();
+
+    let stored = fs::read_to_string(cache.acoustid_path(&matched)).unwrap();
+    assert!(!stored.contains("matched-fingerprint"));
+
+    let status = cache.status(UNIX_EPOCH).unwrap();
+    assert_eq!(status.fresh_acoustid, 1);
+    assert_eq!(status.acoustid_no_matches, 1);
+    assert_eq!(status.stale_acoustid, 0);
+    assert!(status.total_bytes > 0);
+
+    cache.clear().unwrap();
+    assert!(!cache.root().exists());
 }
 
 fn search(album: &str) -> ProviderSearch {
