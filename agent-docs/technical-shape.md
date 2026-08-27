@@ -21,14 +21,16 @@ a genuinely standalone track rather than assuming every input is an album:
 ## Match confidence
 
 Use deterministic, explainable evidence. Existing MusicBrainz identifiers are
-strongest; disc and track structure plus unique positions are hard evidence;
-durations are strong support; normalized artist, album, and title similarity are
-supporting evidence; dates are weaker. Artwork never proves a metadata match.
+strongest. Unique title and compatible-duration evidence maps tracks before
+positions; positions corroborate or provide a cautious fallback only. Disc and
+track structure, normalized artist, album, and title similarity support the
+identity decision; dates are weaker. Artwork never proves a metadata match.
 
-Auto-select only when every track maps uniquely, evidence is strong, and the
-best candidate clearly exceeds the runner-up. Otherwise present materially
-different alternatives and their reasons. Do not use machine learning or show a
-confidence number without an explanation.
+Auto-select only when every track maps uniquely, album identity is credible,
+meaningful track evidence goes beyond positions, identifiers do not conflict,
+and the best candidate clearly exceeds the runner-up. Otherwise present
+materially different alternatives and their reasons. Do not use machine
+learning or show a confidence number without an explanation.
 
 Keep destination behavior separate from matching and planning. v0.1 creates a
 new result under the configured destination root, normally the media library,
@@ -74,6 +76,12 @@ release-group 1200-pixel front rather than choosing an edition-specific scan.
 A provider match without usable source or archive artwork remains valid with a
 prominent warning.
 
+Discover at most eight plausible release groups in an ordinary lookup, then
+browse their official release variants for compatible structure. Release-group
+data owns album identity while a compatible release supplies disc and track
+structure. Keep materially different variants available in the session and
+collapse only equivalent groomed results.
+
 Use direct synchronous HTTP through `ureq` for both providers. Do not add an
 async runtime or a MusicBrainz-specific client when caching, retry behavior, and
 Cover Art Archive access already require a small application-owned adapter. Do
@@ -114,9 +122,10 @@ growing without limit.
 A metadata entry is fresh for a named, documented 30-day constant in v0.1. A
 fresh hit bypasses MusicBrainz completely. Refresh stale metadata; if that
 request fails, use the stale entry with a visible warning. Reuse cached artwork
-without routine redownloads. Explicit refresh bypasses freshness, and a corrupt
-entry behaves as a cache miss. Do not expose freshness as configuration until
-real use demonstrates a need.
+without routine redownloads. A confirmed absence of front artwork is fresh for
+30 days; transient errors never become negative cache entries. Explicit refresh
+bypasses freshness, and a corrupt entry behaves as a cache miss. Do not expose
+freshness as configuration until real use demonstrates a need.
 
 Transient provider failures retry sequentially for at most 60 seconds total.
 Announce the retry window and every delay, honor a reasonable provider

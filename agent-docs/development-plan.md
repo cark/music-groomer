@@ -12,8 +12,8 @@ This page tracks implementation. Durable product reasoning belongs in the
 - Milestone 2 was authorized, implemented, reviewed, and accepted on
   2026-08-27.
 - Milestone 3a product and technical alignment completed on 2026-08-27.
-- Milestone 3a was authorized, implemented, and verified on 2026-08-27; it
-  awaits user review before milestone 3b is considered.
+- Milestone 3a was authorized, implemented, reviewed, corrected, and verified
+  on 2026-08-27.
 
 ## Working rules
 
@@ -123,7 +123,7 @@ behaviors are covered by temporary-directory and format-specific tests.
 
 ## Milestone 3a: providers, cache, and real matching
 
-Status: reviewed; accepted corrections await overall implementation confirmation
+Status: completed
 
 Integrate MusicBrainz and Cover Art Archive behind narrow adapters. Add the
 bounded file cache. Keep `fpcalc` and AcoustID out of this milestone so the
@@ -164,7 +164,7 @@ The first implementation review found a coherent correction set covering
 bounded release-group discovery, edition structure, identifier lookup, matching
 gates, revisable metadata, provenance, warning consolidation, artwork refresh,
 negative artwork caching, and the intentionally line-oriented interaction.
-Implement only after overall confirmation; see
+The user confirmed the full set and it is implemented; see
 [Milestone 3a review corrections](decisions/milestone-3a-review.md).
 
 ## Milestone 3b: difficult loose-track identification

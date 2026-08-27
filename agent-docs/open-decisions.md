@@ -22,5 +22,5 @@ decision page.
 
 ## Open questions
 
-Milestone 3a review corrections were individually accepted and await one final
-overall implementation confirmation. Milestone 3b remains pending.
+No unresolved product question is active. Milestone 3b remains pending and
+requires its own alignment before implementation.

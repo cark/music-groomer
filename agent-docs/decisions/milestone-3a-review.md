@@ -2,8 +2,12 @@
 
 The implemented provider, matching, cache, and guided-review milestone was
 reviewed with the user one product point at a time. The following corrections
-were individually accepted; application implementation awaits the user's final
-overall confirmation.
+were accepted as a set, implemented, and verified on 2026-08-27.
+
+Verification includes deterministic multi-request MusicBrainz adapter tests,
+matching and guided-session tests, temporary cache/filesystem tests, the full
+offline suite, warnings-denied Clippy, and explicit live MusicBrainz and Cover
+Art Archive smoke tests. No personal source or library path was accessed.
 
 ## Provider discovery and fidelity
 
