@@ -196,4 +196,16 @@ mod tests {
             "MusicBrainz lookup completed.\n"
         );
     }
+
+    #[test]
+    fn section_heading_has_a_consistent_visual_break() {
+        let mut rendered = Vec::new();
+        let mut terminal =
+            StdioInteraction::new(Cursor::new(Vec::<u8>::new()), &mut rendered, false);
+
+        terminal.section_heading("Metadata preview").unwrap();
+        drop(terminal);
+
+        assert_eq!(String::from_utf8(rendered).unwrap(), "\nMetadata preview\n");
+    }
 }

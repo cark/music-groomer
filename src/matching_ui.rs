@@ -39,8 +39,7 @@ fn choose_candidate(
     inspection: &Inspection,
     candidates: Vec<RankedCandidate>,
 ) -> io::Result<MetadataSelection> {
-    interaction.blank()?;
-    interaction.warning("Metadata needs your choice")?;
+    interaction.section_heading("Metadata needs your choice")?;
     if candidates.len() == 1 {
         return confirm_only_candidate(interaction, inspection, &candidates[0]);
     }
@@ -68,7 +67,10 @@ fn choose_candidate(
             )));
         }
         match answer.to_ascii_lowercase().as_str() {
-            "m" | "more" if shown < candidates.len() => shown = candidates.len(),
+            "m" | "more" if shown < candidates.len() => {
+                shown = candidates.len();
+                interaction.blank()?;
+            }
             "t" | "tracks" | "details" => show_track_lists(interaction, &candidates[..shown])?,
             "e" | "existing" if coherent_existing_metadata(inspection).is_ok() => {
                 return Ok(MetadataSelection::ExistingTags);
@@ -118,8 +120,7 @@ pub fn revise(
     candidates: &[RankedCandidate],
     current: &MetadataSelection,
 ) -> io::Result<MetadataSelection> {
-    interaction.blank()?;
-    interaction.heading("Metadata selection")?;
+    interaction.section_heading("Metadata selection")?;
     match current {
         MetadataSelection::Provider(selected) => {
             interaction.field("Current", selected.candidate.human_label())?;

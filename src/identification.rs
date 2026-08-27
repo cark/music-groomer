@@ -30,7 +30,11 @@ impl FingerprintEvidence {
             if result.score < ACOUSTID_CANDIDATE_SCORE {
                 continue;
             }
+            let mut seen_recordings = std::collections::BTreeSet::new();
             for recording_id in &result.recording_ids {
+                if !seen_recordings.insert(recording_id) {
+                    continue;
+                }
                 grouped
                     .entry(recording_id.clone())
                     .or_default()
@@ -53,6 +57,7 @@ impl FingerprintEvidence {
                 .best_score()
                 .partial_cmp(&left.best_score())
                 .unwrap_or(Ordering::Equal)
+                .then_with(|| right.associations.len().cmp(&left.associations.len()))
                 .then_with(|| left.recording_id.cmp(&right.recording_id))
         });
         recordings.truncate(MAX_RECORDING_CANDIDATES);
@@ -227,6 +232,42 @@ mod tests {
         assert!(evidence.unusually_ambiguous);
         assert_eq!(evidence.recordings[0].recording_id, "recording-6");
         assert!(!evidence.recording_ids().contains(&"recording-7".into()));
+    }
+
+    #[test]
+    fn equal_scores_favor_recordings_corroborated_by_more_results() {
+        let response = AcoustIdResponse {
+            results: vec![
+                AcoustIdResult {
+                    id: "strong-result".into(),
+                    score: 0.97,
+                    recording_ids: vec![
+                        "album-a".into(),
+                        "album-b".into(),
+                        "album-c".into(),
+                        "album-d".into(),
+                        "album-e".into(),
+                        "single-recording".into(),
+                    ],
+                },
+                AcoustIdResult {
+                    id: "supporting-result-a".into(),
+                    score: 0.95,
+                    recording_ids: vec!["single-recording".into()],
+                },
+                AcoustIdResult {
+                    id: "supporting-result-b".into(),
+                    score: 0.93,
+                    recording_ids: vec!["single-recording".into()],
+                },
+            ],
+        };
+
+        let evidence = FingerprintEvidence::from_response(response, &inspection(), 180);
+
+        assert_eq!(evidence.recordings.len(), MAX_RECORDING_CANDIDATES);
+        assert_eq!(evidence.recordings[0].recording_id, "single-recording");
+        assert_eq!(evidence.recordings[0].associations.len(), 3);
     }
 
     #[test]

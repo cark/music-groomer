@@ -198,3 +198,19 @@ prompt clears it and remains in terminal history. Captured and non-interactive
 output retains discrete stable progress lines for tests and future machine
 consumers. The bounded MusicBrainz request fan-out seen for an unusually
 ambiguous fingerprint remains acceptable and is not a blocking correction.
+
+The first real loose-library track exposed one blocking flaw in the five-ID
+cap. AcoustID associated several recording IDs with the same strongest result,
+and UUID ordering arbitrarily excluded IDs linked to the original single even
+though one excluded ID was corroborated by all three qualifying AcoustID
+results. For equal best scores, rank recording IDs by the number of distinct
+supporting AcoustID results before the deterministic ID fallback. Duplicate IDs
+inside one result do not count as extra corroboration. This retains the
+provider-friendly cap while favoring the better-supported evidence.
+
+The same exercise found the accumulated terminal flow difficult to scan.
+Human-mode major phases begin with a blank line and consistently styled heading;
+expanded candidate lists also receive a visual break. Keep terminal history and
+avoid screen clearing or decorative divider noise. This is deliberately a
+first visual adjustment to be judged in the real terminal rather than a claim
+that spacing is permanently settled.

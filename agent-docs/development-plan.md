@@ -221,6 +221,10 @@ Acceptance:
   provider requests and rate-limit waits now share one animated transient
   status line instead of accumulating static lines. Completed phases, warnings,
   and failures remain visible; captured output keeps stable discrete events.
+- Equal-score fingerprint recording candidates use cross-result corroboration
+  before deterministic ID ordering, preventing an arbitrary five-ID cutoff from
+  hiding better-supported single releases. Major terminal phases use consistent
+  spacing and headings so the retained interaction history remains scannable.
 
 ## Milestone 4: safe apply and validation
 

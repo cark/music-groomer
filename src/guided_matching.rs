@@ -145,11 +145,11 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
         identification: mut identification_adapters,
     } = providers;
     let (inspection, search) = source_inspection(source);
-    interaction.blank()?;
     if offline {
-        interaction.heading("Metadata lookup (offline: providers will not be contacted)")?;
+        interaction
+            .section_heading("Metadata lookup (offline: providers will not be contacted)")?;
     } else {
-        interaction.heading("Checking metadata and provider cache")?;
+        interaction.section_heading("Checking metadata and provider cache")?;
     }
 
     let mut metadata_resolver = MetadataResolver::new(metadata, cache.clone());
@@ -342,6 +342,7 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
                 )?;
             }
             "f" | "refresh" if !offline => {
+                interaction.section_heading("Refreshing provider data and artwork")?;
                 let refreshed_decision = if identification.is_some() {
                     if let Some(adapters) = identification_adapters.as_mut() {
                         refresh_fingerprint_identification(
@@ -611,7 +612,7 @@ fn fetch_artwork<A: ArtworkProvider>(
         warnings.push("Selected metadata has no release-group artwork identity".into());
         return Ok(None);
     };
-    interaction.prose("Checking Cover Art Archive for a canonical front cover...")?;
+    interaction.section_heading("Checking album artwork")?;
     let lookup = {
         let mut progress = InteractionProgress(interaction);
         resolver.lookup(
@@ -673,8 +674,7 @@ fn show_preview(
     warnings: &[String],
     source_year_fallback: Option<u16>,
 ) -> io::Result<()> {
-    interaction.blank()?;
-    interaction.heading("metadata preview")?;
+    interaction.section_heading("Metadata preview")?;
     match metadata {
         MetadataSelection::Provider(selected) => {
             interaction.field("Selected", selected.candidate.human_label())?;
@@ -865,8 +865,7 @@ fn show_source_review(
     interaction: &mut impl Interaction,
     source: &SourceInspection,
 ) -> io::Result<()> {
-    interaction.blank()?;
-    interaction.heading("Source files and tags")?;
+    interaction.section_heading("Source files and tags")?;
     for audio in &source.audio {
         interaction.present(UiLine::new().with(
             SemanticRole::Path,
@@ -1113,8 +1112,7 @@ fn show_identification_details(
     interaction: &mut impl Interaction,
     evidence: &FingerprintEvidence,
 ) -> io::Result<()> {
-    interaction.blank()?;
-    interaction.heading("Audio identification evidence")?;
+    interaction.section_heading("Audio identification evidence")?;
     interaction.field("Provider", "AcoustID lookup; fingerprint and duration only")?;
     if evidence.recordings.is_empty() {
         return interaction.field("MusicBrainz recordings", "none");

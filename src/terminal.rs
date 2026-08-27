@@ -26,6 +26,11 @@ pub trait Interaction {
         self.present(UiLine::heading(text))
     }
 
+    fn section_heading(&mut self, text: impl Into<String>) -> io::Result<()> {
+        self.blank()?;
+        self.heading(text)
+    }
+
     fn success(&mut self, text: impl Into<String>) -> io::Result<()> {
         self.present(UiLine::success(text))
     }

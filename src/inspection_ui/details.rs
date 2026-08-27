@@ -9,8 +9,7 @@ pub(super) fn show(
     interaction: &mut impl Interaction,
     inspection: &SourceInspection,
 ) -> io::Result<()> {
-    interaction.blank()?;
-    interaction.heading("Files and tags")?;
+    interaction.section_heading("Files and tags")?;
     for audio in &inspection.audio {
         show_audio(interaction, audio)?;
     }

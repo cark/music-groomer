@@ -187,7 +187,7 @@ fn clear_match_reaches_read_only_preview_without_extra_identifier_input() {
 
     assert!(matches!(result.metadata, MetadataSelection::Provider(_)));
     assert!(interaction.transcript.contains("Clear metadata match"));
-    assert!(interaction.transcript.contains("metadata preview"));
+    assert!(interaction.transcript.contains("Metadata preview"));
     assert!(
         interaction
             .transcript
