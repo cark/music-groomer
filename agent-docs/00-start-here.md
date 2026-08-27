@@ -77,6 +77,12 @@ should not become invisible: after a meaningful discussion step, a short
 the intended defaults. The user can say to continue or stop on any item that
 sparks an idea. Do not turn the pulse into a questionnaire or a wall of text.
 
+Offer the user a command for an early terminal exercise whenever implementation
+reaches a coherent vertical slice, rather than waiting for the whole milestone.
+Label still-missing behavior plainly. A useful early exercise must demonstrate
+a meaningful interaction; do not call disconnected internals or an agent-only
+terminal run a user demo.
+
 Before a large implementation boundary after lengthy alignment, proactively
 suggest a conversation compaction and provide the exact resume phrase. This
 keeps the handoff cheap without making the user spend a turn asking whether the
