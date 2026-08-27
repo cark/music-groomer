@@ -5,11 +5,12 @@ This page tracks implementation. Durable product reasoning belongs in the
 
 ## Current status
 
-- Product and technical alignment completed on 2026-08-27.
+- Product and technical alignment through milestone 2 completed on 2026-08-27.
 - Milestone 0 documentation baseline completed on 2026-08-27.
 - Milestone 1's revised guided interaction was accepted by the user on
   2026-08-27.
-- Milestone 2 has not been authorized.
+- Milestone 2's decisions are documented and awaiting final scope approval;
+  implementation has not been authorized.
 
 ## Working rules
 
@@ -69,21 +70,40 @@ part of the intended end-user workflow.
 
 ## Milestone 2: file inspection and preservation
 
-Status: pending
+Status: aligned, awaiting explicit implementation approval
 
-Add filesystem inventory and Lofty-backed tag inspection/writing. Add valid
-temporary or test fixtures for FLAC, MP3, M4A, Ogg Vorbis, and Opus.
+Add the genuine read-only `music-groomer SOURCE` guided inspection backed by a
+structured filesystem inventory and Lofty tag reader. Implement tag writing as
+an internal preservation proof against temporary copies only; user-facing Apply
+remains milestone 4. See [source inspection](decisions/source-inspection.md) and
+[files, tags, and artwork](decisions/files-tags-artwork.md).
+
+Commit tiny reproducible synthetic silent seeds for FLAC, MP3, AAC-in-M4A,
+ALAC-in-M4A, Ogg Vorbis, and Opus. Copy seeds into temporary directories before
+every mutation. Align the manifest's Rust requirement with the pinned Rust 1.97
+development toolchain.
 
 Acceptance:
 
-- Each claimed format proves intended tag changes.
-- Unrelated tags and embedded-picture bytes are preserved.
-- Audio properties remain valid after writing.
-- Album directories and explicitly selected loose files obey their different
-  source boundaries.
-- Ancillary files, symlinks, unusual objects, stale playlist/cue warnings, and
-  artwork relocation produce exact plans and temporary-directory test coverage.
+- `music-groomer SOURCE` shows a concise styled inspection and an understandable
+  full file-and-tag review without providers, destination access, or Apply.
+- Inspection recursively handles one logical release, disc subdirectories,
+  loose-file boundaries, mixed supported formats, ancillary and hidden files,
+  symlinks, special objects, and unreadable paths according to accepted policy.
+- Content detection distinguishes actual audio and image formats from misleading
+  extensions and reports the exact eventual canonical rename.
+- Missing or contradictory tags are structured warnings; corrupt or unsupported
+  audio and preservation-blocking filesystem conditions are structured blockers.
+- Artwork selection follows root-level name priority, reports ties and
+  alternatives, accepts JPEG/PNG/WebP/GIF natively, and does not transcode.
+- Cue-image sources block with a useful explanation; ordinary cue and playlist
+  files are preserved with stale-reference warnings where applicable.
+- Each claimed audio format proves intended tag changes, semantic preservation
+  of unrelated tags, exact embedded-picture preservation, and valid unchanged
+  audio properties on temporary fixture copies.
 - A format that fails the preservation contract remains visibly unsupported.
+- A successful inspection can carry warnings and exit successfully; blockers
+  fail coherently without touching the source or configured destination.
 
 ## Milestone 3: providers, cache, and real matching
 
@@ -121,6 +141,9 @@ Acceptance:
 - Abandoned publication cleanup verifies the ownership marker.
 - Validation re-reads tags, audio properties, embedded artwork, sidecar artwork,
   filenames, ancillary files, and destination layout.
+- Apply reports its copy, grooming, validation, and publication stages. Failures
+  identify the stage, path and cause where known, source and destination status,
+  and cleanup outcome.
 - Interruption and injected failure points leave no final partial album.
 - Full format, core, CLI, provider-fake, filesystem, and apply suites pass.
 

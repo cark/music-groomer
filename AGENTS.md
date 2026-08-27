@@ -1,6 +1,7 @@
 # music-groomer agent guide
 
 Start with [agent-docs/00-start-here.md](agent-docs/00-start-here.md).
+Follow its task-based routing instead of loading every page by default.
 
 The files in `agent-docs/` are the durable product and engineering record for
 this repository. Keep them short, link related pages, and distinguish accepted

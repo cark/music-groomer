@@ -21,10 +21,11 @@ validate in the operating system's temporary directory, then publish the new
 result under the configured root. Ordinary filesystem permissions are enough;
 the live library is not a privileged or inviolable destination.
 
-For a file source, inspect and groom only that file. For a directory containing
-one audio file, treat it as a single release source and preserve its ordinary
-ancillary contents. State that interpretation in preview; never infer that
-arbitrary siblings belong to a selected file.
+For a file source, inspect and groom only that file; never infer that arbitrary
+siblings belong to it. For a directory, recurse through ordinary subdirectories
+and treat the contents as one logical release, including its ancillary files.
+A directory containing one audio file is therefore a single-release source.
+State the selected-source interpretation in preview.
 
 The session should:
 
@@ -53,6 +54,12 @@ values rather than contain product decisions itself. This leaves room for a
 post-v0.1 machine-usable command-line mode without duplicating the workflow. Do
 not commit v0.1 to a public JSON schema, machine exit semantics, or
 non-interactive apply protocol.
+
+Milestone 2 exposes the first genuine part of this flow as read-only
+`music-groomer SOURCE`: inspect and summarize, with `Review files and tags` for
+the complete inventory. It does not contact providers, inspect the destination,
+or offer Apply yet. This is the beginning of the final guided interaction, not
+a disposable diagnostic subcommand.
 
 When added later, a machine-facing mode should use stable structured output and
 keep progress or diagnostics separate from result data. It must never depend on
@@ -101,6 +108,13 @@ later. This does not authorize in-place library mutation, playlist-wide
 processing, or automatic library scanning.
 
 ## Interrupted or failed apply
+
+During Apply, show the meaningful stages without dumping routine per-file
+noise: `Copying source`, `Grooming staged copy`, `Validating`, and `Publishing`.
+On failure, identify the stage, affected path when known, concrete cause,
+whether the source remained untouched, whether anything reached the
+destination, and whether temporary data was cleaned. Never reduce these facts
+to an unexplained `operation failed` message.
 
 Build and validate in the operating system's temporary directory so ordinary
 failures do not leave dead album copies on persistent storage. Check available

@@ -34,8 +34,14 @@ library discovery, in-place updates, or a durable ingestion database.
 
 - Playlist and multi-item batch processing.
 - Playlist and cue-sheet reference rewriting.
+- Native splitting of cue sheets backed by one large audio image.
 - Explicit in-library replacement.
-- General manual metadata editing.
+- Minimal manual rescue for a liked album or track that remains unidentified;
+  this is important, but follows the provider-backed v0.1 rather than turning
+  initial matching into a general tag editor.
+- Artwork transcoding when the only plausible cover uses a format Navidrome
+  cannot consume directly.
+- Concurrent source-change detection beyond staging and result validation.
 - Machine-facing CLI, stable JSON schema, and non-interactive apply protocol.
 
 The internal workflow should remain reusable for these later features without

@@ -21,12 +21,26 @@ cohesion is the goal, not maximum fragmentation. Pragmatic exceptions are
 welcome when separating tightly coupled code would make the flow harder to
 understand.
 
+## Rust toolchain policy
+
+Target the current stable Rust supplied by the pinned Nix development flake and
+raise `rust-version` with that pin rather than carrying compatibility for older
+compilers without a demonstrated user. Milestone 2 will align the manifest with
+the currently pinned Rust 1.97 toolchain. Current language and library features
+are welcome when they make the code clearer.
+
 ## Metadata and providers
 
-Use Lofty for tag access, conditional on fixture tests proving preservation for
-every claimed format. Use MusicBrainz for metadata and identities, Cover Art
-Archive for fronts, and AcoustID only for the scoped loose-track fallback. Add no
-other online metadata provider in v0.1.
+Start with current Lofty 0.25 for tag access, conditional on fixture tests
+proving preservation for every claimed format. Do not introduce a second tag
+stack speculatively. Use MusicBrainz for metadata and identities, Cover Art
+Archive for fronts, and AcoustID only for the scoped loose-track fallback. Add
+no other online metadata provider in v0.1.
+
+Represent inspection warnings and blockers as typed data, not terminal prose.
+The human interface renders them with clear text and restrained styling; a
+future machine interface can serialize the same values and receive warnings on
+successful results.
 
 Keep MusicBrainz behind a narrow adapter. A small implementation evaluation may
 choose a Rust client crate or direct HTTP without changing core behavior.

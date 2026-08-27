@@ -33,8 +33,10 @@ is the next distinct destination workflow; do not mix replacement safety into
 v0.1.
 
 Selecting one audio file selects only that file; arbitrary siblings do not
-become source material. Selecting a directory containing one audio file selects
-the single together with that directory's ordinary ancillary contents.
+become source material. Selecting a directory recursively selects one logical
+release together with its ordinary ancillary contents. A directory containing
+one audio file is therefore a single-release source rather than an implicit
+batch.
 
 The product should be mostly automatic for ordinary albums. Uncertainty should
 be presented in human terms and corrected inside the same guided session. The

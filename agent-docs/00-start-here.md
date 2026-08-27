@@ -6,19 +6,31 @@ must never modify the selected source.
 
 ## Current phase
 
-Product and technical direction are aligned. Milestone 1 is implemented,
-verified, and accepted; milestone 2 has not been authorized.
+Product and technical direction are aligned through milestone 2. Milestone 1
+is implemented, verified, and accepted. Milestone 2's detailed scope is now
+documented but its implementation has not yet received final approval.
 
-## Read next
+## Task routing
 
-- [Product intent](product-intent.md): goals, non-goals, and product principles.
-- [User workflow](user-workflow.md): the proposed one-session experience.
-- [Metadata policy](metadata-policy.md): artists, dates, tags, and artwork.
-- [Technical shape](technical-shape.md): lean boundaries and failure behavior.
-- [Decision index](open-decisions.md): accepted choices, deferrals, and any new
-  questions that still require alignment.
-- [Development plan](development-plan.md): milestone status, acceptance checks,
-  and the next implementation action.
+Read [development plan](development-plan.md) for current status and the active
+milestone. Then load only the pages relevant to the task:
+
+- Product direction or scope: [product intent](product-intent.md) and the
+  [decision index](open-decisions.md).
+- Guided interaction or layout: [user workflow](user-workflow.md) and
+  [workflow and layout](decisions/workflow-and-layout.md).
+- Source inspection or format work:
+  [source inspection](decisions/source-inspection.md) and
+  [files, tags, and artwork](decisions/files-tags-artwork.md).
+- Metadata semantics: [metadata policy](metadata-policy.md), plus the relevant
+  decision page linked from the decision index.
+- Architecture, providers, cache, or Apply: [technical shape](technical-shape.md)
+  and [technical boundaries](decisions/technical-boundaries.md).
+- Standalone tracks or deferred features:
+  [standalone tracks and scope](decisions/standalone-tracks-and-scope.md).
+
+Before changing accepted behavior, check the decision index for an existing
+decision or deferral. Do not load unrelated pages merely because they exist.
 
 ## Documentation conventions
 

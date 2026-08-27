@@ -7,6 +7,7 @@ recorded.
 Detailed decisions are grouped into small pages:
 
 - [Workflow and layout](decisions/workflow-and-layout.md)
+- [Source inspection](decisions/source-inspection.md)
 - [Files, tags, and artwork](decisions/files-tags-artwork.md)
 - [Standalone tracks and scope](decisions/standalone-tracks-and-scope.md)
 - [Technical boundaries](decisions/technical-boundaries.md)
@@ -20,4 +21,6 @@ decision page.
 
 ## Open questions
 
-None currently recorded.
+None currently recorded. Milestone 2's individual decisions are aligned and
+documented, but implementation still requires the user's explicit overall
+approval.

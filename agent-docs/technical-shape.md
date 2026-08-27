@@ -111,7 +111,10 @@ There is no database, queue, worker, or automatic background retry.
 
 ## Deferred reference rewriting
 
-Do not rewrite playlist or cue-sheet references in v0.1. Copy those files
-unchanged and warn when renamed audio may make their local references stale.
-Reliable rewriting involves encodings, internal metadata, external paths, and
-different cue layouts, so it requires a separately demonstrated workflow.
+Do not rewrite playlist or ordinary cue-sheet references in v0.1. Copy those
+files unchanged and warn when renamed audio may make their local references
+stale. A probable cue sheet backed by one large audio image blocks because
+Navidrome cannot expose its virtual tracks; native splitting is deferred.
+Reliable rewriting or splitting involves encodings, internal metadata, external
+paths, cue layouts, and audio transformation, so it requires a separately
+demonstrated workflow.
