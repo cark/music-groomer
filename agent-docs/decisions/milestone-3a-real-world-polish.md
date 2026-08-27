@@ -1,9 +1,8 @@
 # Milestone 3a real-world polish
 
 The first authorized read-only Evolution exercise exposed two real-source bugs
-and inconsistent styling across later guided screens. The following focused
-correction set is aligned but must not be implemented until the user gives one
-final overall confirmation.
+and inconsistent styling across later guided screens. The user confirmed the
+complete correction set, which was implemented and verified on 2026-08-27.
 
 ## Semantic terminal presentation
 
@@ -49,3 +48,21 @@ This pass includes regression tests, documentation, cache-schema invalidation
 where provider semantics changed, and a read-only rerun against the authorized
 Evolution directory. It does not add layout work, Apply, fingerprinting, a
 workspace split, or wider matching redesign.
+
+## Implementation record
+
+- Human CLI output now crosses one semantic `Interaction` boundary. The stdio
+  renderer owns ANSI styling, while fakes retain semantic lines and readable
+  plain transcripts.
+- Clippy denies direct standard print macros across both application crates;
+  Clap output, the renderer's direct `Write` calls, and the final renderer-error
+  fallback remain the narrow exceptions.
+- Non-audio parse failures fall through to artwork and ancillary inspection,
+  while audio-like corrupt files and genuine read failures remain blockers.
+- MusicBrainz emits a structured visible retry before using a search-only base
+  title, only after the exact title produces no usable candidate. Cache schema
+  3 prevents old literal-title misses from bypassing the new behavior.
+- Offline tests cover semantic menu/path events, colored and plain rendering,
+  common real-source ancillary types, exact-title precedence, and the fallback
+  retry. The final Evolution rerun remains a user-driven read-only demo in the
+  user's own terminal.

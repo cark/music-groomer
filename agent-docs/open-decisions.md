@@ -23,6 +23,5 @@ decision page.
 
 ## Open questions
 
-The milestone 3a real-world polish points are individually aligned and await
-one final overall implementation confirmation. Milestone 3b remains pending
-and requires its own alignment before implementation.
+No question is currently open. Milestone 3b remains pending and requires its
+own alignment before implementation.
