@@ -53,6 +53,20 @@ provider matching in milestone 3 may repair it. Only unreadable or corrupt
 audio, unsupported audio, special filesystem objects, and other conditions
 that prevent safe preservation block at inspection time.
 
+For MP4-family input, accept supported AAC or ALAC audio only when the container
+has no video track. An audio-plus-video MP4 blocks in v0.1 with a clear
+explanation; support can be reconsidered after testing Navidrome and the intended
+music clients. Use the narrow MP4 parser only to establish this track shape.
+
+A readable probable image rejected by the canonical image decoder is preserved
+with a warning and cannot be chosen as canonical artwork. Only an actual read
+failure blocks preservation.
+
+When deciding whether a directory appears to contain several releases, compare
+album titles case-insensitively after collapsing insignificant whitespace.
+Report those cosmetic variations as a warning, while keeping punctuation and
+wording significant enough to expose genuinely different albums.
+
 ## Cue sheets
 
 Navidrome's one-file-per-track model means a cue sheet plus one large audio
@@ -62,7 +76,9 @@ recommendation to split it externally. Native cue-image splitting is deferred.
 
 A cue sheet accompanying already separated tracks is ordinary ancillary data.
 Copy it unchanged later, and warn when planned audio renames may leave its
-references stale.
+references stale. Detect structural `TRACK` declarations from raw bytes without
+assuming the cue sheet is UTF-8, and preserve the original bytes. Failure to
+read a probable cue sheet blocks inspection.
 
 ## Source stability
 

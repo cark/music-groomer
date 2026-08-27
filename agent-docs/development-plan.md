@@ -9,8 +9,8 @@ This page tracks implementation. Durable product reasoning belongs in the
 - Milestone 0 documentation baseline completed on 2026-08-27.
 - Milestone 1's revised guided interaction was accepted by the user on
   2026-08-27.
-- Milestone 2 was authorized, implemented, and verified on 2026-08-27; it now
-  awaits user review and acceptance.
+- Milestone 2 was authorized, implemented, reviewed, and accepted on
+  2026-08-27.
 
 ## Working rules
 
@@ -70,7 +70,7 @@ part of the intended end-user workflow.
 
 ## Milestone 2: file inspection and preservation
 
-Status: implemented and verified, awaiting user acceptance
+Status: completed
 
 Add the genuine read-only `music-groomer SOURCE` guided inspection backed by a
 structured filesystem inventory and Lofty tag reader. Implement tag writing as
@@ -96,11 +96,14 @@ Acceptance:
   audio and preservation-blocking filesystem conditions are structured blockers.
 - Artwork selection follows root-level name priority, reports ties and
   alternatives, accepts JPEG/PNG/WebP/GIF natively, and does not transcode.
+- MP4 audio is inspected structurally; a container that also has video is
+  visibly unsupported in v0.1.
 - Cue-image sources block with a useful explanation; ordinary cue and playlist
   files are preserved with stale-reference warnings where applicable.
 - Each claimed audio format proves intended tag changes, semantic preservation
-  of unrelated tags, exact embedded-picture preservation, and valid unchanged
-  audio properties on temporary fixture copies.
+  of unrelated tags and legacy containers, exact preservation of multiple
+  embedded pictures, and valid unchanged audio properties on temporary fixture
+  copies.
 - A format that fails the preservation contract remains visibly unsupported.
 - A successful inspection can carry warnings and exit successfully; blockers
   fail coherently without touching the source or configured destination.

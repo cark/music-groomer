@@ -7,9 +7,8 @@ must never modify the selected source.
 ## Current phase
 
 Product and technical direction are aligned through milestone 2. Milestone 1
-is implemented, verified, and accepted. Milestone 2 is implemented and
-verified against synthetic fixtures, and awaits the user's review and
-acceptance.
+and milestone 2 are implemented, verified, reviewed, and accepted. Milestone 3
+remains pending and is not authorized by that acceptance.
 
 ## Task routing
 

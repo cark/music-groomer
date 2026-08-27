@@ -12,13 +12,17 @@ For every claimed format, prove that planned groomed fields are written,
 unrelated tags are semantically preserved, embedded pictures retain their exact
 bytes, MIME type, picture type, and description, and available codec, duration,
 sample-rate, and channel properties remain valid. Raw tag-block or whole-file
-byte identity is not required. If a format cannot meet this contract safely,
-keep it visibly unsupported instead of silently losing data.
+byte identity is not required. The proof includes lyrics, unrelated text,
+multiple embedded pictures, and the legacy ID3v1 container in MP3 fixtures. If
+a format cannot meet this contract safely, keep it visibly unsupported instead
+of silently losing data.
 
 Mixed supported formats within one logical release are accepted with a warning
 and are not transcoded. Detect actual formats from content. When a supported
 audio file has a misleading extension, show the exact eventual rename to its
 canonical `.flac`, `.mp3`, `.m4a`, `.ogg`, or `.opus` extension.
+MP4 files containing both audio and video tracks are unsupported in v0.1. Revisit
+that boundary only with evidence from Navidrome and the intended clients.
 
 ## Source preservation
 
@@ -48,8 +52,14 @@ constituent album artists, track and disc positions and totals, compilation
 status, canonical date, and accepted MusicBrainz identifiers.
 
 Write identifiers for artists, album artists, confidently mapped recordings,
-and the release group. Write a specific release ID only when the exact release
-is genuinely known, not when an equivalent edition merely supplied metadata.
+and the release group when confidently known. Absence of a replacement ID in a
+plan preserves the existing value. v0.1 deliberately never adds or changes the
+exact release ID: preserve an existing one unchanged, because this workflow is
+not trying to identify a pressing or catalogue edition.
+
+Compilation status is explicit groomed metadata. Set it for a genuine
+compilation and clear an incorrect compilation flag for an ordinary or
+collaboration release.
 
 Preserve existing genre, ReplayGain, lyrics, embedded pictures, and other
 unrelated useful tags. Do not fetch or normalize lyrics. Do not fetch, infer,
@@ -86,6 +96,11 @@ real format from content and publish the selected source image natively as
 the expanded review. Do not resize, recompress, or transcode it. A probable
 image in another format is preserved with a warning but cannot be selected as
 canonical artwork in v0.1.
+
+Use the Rust `image` decoder as the canonical eligibility check. A readable
+probable image that it cannot decode remains preserved ancillary data with a
+warning; it does not block grooming. Failure to read the file at all blocks
+because preservation cannot be proven.
 
 When no source cover exists, use the archive's 1200-pixel front derivative. Do
 not invent an image-quality score or download backs, booklets, or scan

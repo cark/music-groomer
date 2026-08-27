@@ -19,6 +19,9 @@ Use `Various Artists` for a true compilation whose tracks are credited across
 otherwise separate artists and whose album-level credit is various artists.
 Track artist credits still remain specific to each track.
 
+Write compilation status explicitly: set it for such a true compilation and
+clear an incorrect source flag for an ordinary or collaboration release.
+
 Use the credited name from the selected metadata rather than inventing a fixed
 joiner such as `&`, `and`, or `with`.
 
@@ -73,10 +76,11 @@ year, not the original release years of its individual songs.
 ## Accepted identifier behavior
 
 Write MusicBrainz identifiers for artists, album artists, confidently mapped
-recordings, and the release group. Write a specific release ID only when the
-exact release has genuinely been identified; do not turn a representative
-edition used for metadata into a false pressing claim. Show identifiers only in
-expanded preview details during the ordinary guided workflow.
+recordings, and the release group when confidently known. A missing replacement
+identifier means preserve the existing value rather than delete it. v0.1 does
+not add or change a specific release ID, even if a representative edition
+supplies metadata; preserve an existing release ID unchanged. Show identifiers
+only in expanded preview details during the ordinary guided workflow.
 
 ## Accepted standalone-track behavior
 
