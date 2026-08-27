@@ -10,6 +10,7 @@ use super::render::{artwork_summary, duration, show_label_value, show_notice, sh
 pub(super) fn show(
     interaction: &mut impl Interaction,
     inspection: &SourceInspection,
+    continues_to_metadata: bool,
 ) -> io::Result<()> {
     show_styled(
         interaction,
@@ -55,7 +56,13 @@ pub(super) fn show(
         show_notice(interaction, notice)?;
     }
     show_completion(interaction, inspection)?;
-    interaction.show("No provider was contacted and no destination was accessed.")?;
+    if continues_to_metadata {
+        interaction.show(
+            "The destination was not accessed; provider matching starts only after Continue.",
+        )?;
+    } else {
+        interaction.show("No provider was contacted and no destination was accessed.")?;
+    }
     interaction.show("")
 }
 

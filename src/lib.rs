@@ -1,9 +1,11 @@
 pub mod config;
 pub mod demo;
 pub mod domain;
+pub mod guided_matching;
 pub mod inspection_ui;
 pub mod layout;
 pub mod matching;
+pub mod matching_ui;
 pub mod plan;
 pub mod provider;
 pub mod source;
