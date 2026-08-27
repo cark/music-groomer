@@ -14,6 +14,9 @@ This page tracks implementation. Durable product reasoning belongs in the
 - Milestone 3a product and technical alignment completed on 2026-08-27.
 - Milestone 3a was authorized, implemented, reviewed, corrected, and verified
   on 2026-08-27.
+- A read-only real-source exercise exposed a focused milestone 3a polish set;
+  its individual decisions are aligned and await overall implementation
+  confirmation.
 
 ## Working rules
 
@@ -166,6 +169,12 @@ gates, revisable metadata, provenance, warning consolidation, artwork refresh,
 negative artwork caching, and the intentionally line-oriented interaction.
 The user confirmed the full set and it is implemented; see
 [Milestone 3a review corrections](decisions/milestone-3a-review.md).
+
+The first real-source exercise then identified false non-audio blockers,
+overly literal source-title discovery, and styling drift. The bounded correction
+set is recorded in
+[Milestone 3a real-world polish](decisions/milestone-3a-real-world-polish.md)
+and must await overall confirmation before implementation.
 
 ## Milestone 3b: difficult loose-track identification
 

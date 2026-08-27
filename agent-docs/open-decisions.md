@@ -12,6 +12,7 @@ Detailed decisions are grouped into small pages:
 - [Standalone tracks and scope](decisions/standalone-tracks-and-scope.md)
 - [Technical boundaries](decisions/technical-boundaries.md)
 - [Milestone 3a review corrections](decisions/milestone-3a-review.md)
+- [Milestone 3a real-world polish](decisions/milestone-3a-real-world-polish.md)
 
 Implementation must not begin merely because this index has no open entry. The
 user must explicitly confirm overall alignment, as required by `AGENTS.md`.
@@ -22,5 +23,6 @@ decision page.
 
 ## Open questions
 
-No unresolved product question is active. Milestone 3b remains pending and
-requires its own alignment before implementation.
+The milestone 3a real-world polish points are individually aligned and await
+one final overall implementation confirmation. Milestone 3b remains pending
+and requires its own alignment before implementation.
