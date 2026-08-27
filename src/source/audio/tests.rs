@@ -57,12 +57,14 @@ fn prove_preservation(name: &str, expected_format: AudioFormat) {
     let reader = LoftyAudioReader;
     let before = inspected(&reader, &path);
     let unrelated_before = unrelated(&path);
+    let legacy_before = legacy_id3v1(&path);
     let plan = plan();
     reader
         .write_tags(&path, &plan)
         .unwrap_or_else(|error| panic!("{name} should be writable: {error}"));
     let after = inspected(&reader, &path);
     let unrelated_after = unrelated(&path);
+    let legacy_after = legacy_id3v1(&path);
 
     assert_eq!(after.format, expected_format);
     assert_eq!(
@@ -73,6 +75,7 @@ fn prove_preservation(name: &str, expected_format: AudioFormat) {
         unrelated_after, unrelated_before,
         "unrelated data changed for {name}"
     );
+    assert_eq!(legacy_after, legacy_before, "legacy tag changed for {name}");
     assert_eq!(after.tags.title.as_deref(), Some("New title"));
     assert_eq!(after.tags.artist.as_deref(), Some("Person A with Person B"));
     assert_eq!(after.tags.artists, ["Person A", "Person B"]);
@@ -171,6 +174,14 @@ fn add_preserved_data(path: &Path) {
     tag.set_genre("Jazz".to_owned());
     assert!(tag.insert_text(ItemKey::ReplayGainTrackGain, "-3.25 dB".to_owned()));
     tag.insert_text(ItemKey::Comment, "keep this comment".to_owned());
+    assert!(tag.insert_text(
+        ItemKey::UnsyncLyrics,
+        "existing lyrics stay untouched".to_owned(),
+    ));
+    assert!(tag.insert_text(
+        ItemKey::CopyrightMessage,
+        "Copyright remains with its owner".to_owned(),
+    ));
     tag.insert_unchecked(lofty::tag::TagItem::new(
         ItemKey::MusicBrainzReleaseId,
         lofty::tag::ItemValue::Text("existing-exact-release-id".to_owned()),
@@ -182,12 +193,25 @@ fn add_preserved_data(path: &Path) {
             .description("source front")
             .build(),
     );
+    tag.push_picture(
+        Picture::unchecked(PICTURE_BYTES.to_vec())
+            .pic_type(PictureType::CoverBack)
+            .mime_type(MimeType::Png)
+            .description("source back")
+            .build(),
+    );
     tagged
         .save_to_path(path, WriteOptions::new())
         .expect("preservation baseline should be writable");
     if tag_type == lofty::tag::TagType::Id3v2 {
         write_id3v2_album_ids(path, Some("existing-exact-release-id"), None)
             .expect("MP3 exact-release baseline should be writable");
+        let mut legacy = Tag::new(lofty::tag::TagType::Id3v1);
+        legacy.set_genre("Legacy Jazz".to_owned());
+        legacy.insert_text(ItemKey::Comment, "legacy comment".to_owned());
+        legacy
+            .save_to_path(path, WriteOptions::new())
+            .expect("MP3 legacy tag baseline should be writable");
     }
 }
 
@@ -264,6 +288,14 @@ fn unrelated(path: &Path) -> UnrelatedSnapshot {
             .get_strings(ItemKey::Comment)
             .map(str::to_owned)
             .collect(),
+        lyrics: tag
+            .get_strings(ItemKey::UnsyncLyrics)
+            .map(str::to_owned)
+            .collect(),
+        copyrights: tag
+            .get_strings(ItemKey::CopyrightMessage)
+            .map(str::to_owned)
+            .collect(),
         exact_release_id: tag
             .get_string(ItemKey::MusicBrainzReleaseId)
             .map(str::to_owned),
@@ -278,6 +310,26 @@ fn unrelated(path: &Path) -> UnrelatedSnapshot {
             })
             .collect(),
     }
+}
+
+fn legacy_id3v1(path: &Path) -> Option<LegacySnapshot> {
+    let tagged = Probe::open(path)
+        .expect("fixture should open")
+        .guess_file_type()
+        .expect("fixture type should be detected")
+        .read()
+        .expect("fixture should parse");
+    tagged
+        .tags()
+        .iter()
+        .find(|tag| tag.tag_type() == lofty::tag::TagType::Id3v1)
+        .map(|tag| LegacySnapshot {
+            genre: tag.genre().map(|value| value.into_owned()),
+            comments: tag
+                .get_strings(ItemKey::Comment)
+                .map(str::to_owned)
+                .collect(),
+        })
 }
 
 fn inspected(reader: &LoftyAudioReader, path: &Path) -> InspectedAudio {
@@ -319,8 +371,16 @@ struct UnrelatedSnapshot {
     genre: Option<String>,
     replay_gain: Vec<String>,
     comments: Vec<String>,
+    lyrics: Vec<String>,
+    copyrights: Vec<String>,
     exact_release_id: Option<String>,
     pictures: Vec<PictureSnapshot>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct LegacySnapshot {
+    genre: Option<String>,
+    comments: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
