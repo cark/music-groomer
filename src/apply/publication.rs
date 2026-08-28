@@ -24,6 +24,32 @@ pub struct PublicationResult {
     pub cleanup_warning: Option<String>,
 }
 
+#[derive(Debug)]
+pub(crate) struct PreparedSwap {
+    entry: PathBuf,
+    partial_root: PathBuf,
+    pub payload: PathBuf,
+}
+
+impl PreparedSwap {
+    pub fn finish(self) -> Option<String> {
+        remove_partial_container(&self.entry, &self.partial_root)
+    }
+
+    pub fn discard(self) -> Result<(), PublicationError> {
+        match remove_marked_entry(&self.entry) {
+            Ok(()) => {
+                let _ = fs::remove_dir(&self.partial_root);
+                Ok(())
+            }
+            Err(source) => Err(PublicationError::Io {
+                path: self.entry,
+                source,
+            }),
+        }
+    }
+}
+
 pub fn publish(
     stage: &Path,
     destination_root: &Path,
@@ -59,6 +85,47 @@ pub fn publish(
         remove_empty_parents(created_parents);
     }
     result
+}
+
+pub(crate) fn prepare_for_swap(
+    stage: &Path,
+    destination_root: &Path,
+    mut validate: impl FnMut(&Path) -> Result<(), String>,
+) -> Result<PreparedSwap, PublicationError> {
+    let partial_root = destination_root.join(PARTIAL_DIRECTORY);
+    fs::create_dir_all(&partial_root).map_err(|source| PublicationError::Io {
+        path: partial_root.clone(),
+        source,
+    })?;
+    let entry = create_partial_entry(&partial_root)?;
+    let payload = entry.join("result");
+    let operation = (|| {
+        write_marker(&entry)?;
+        copy_tree(stage, &payload)?;
+        validate(&payload).map_err(|cause| PublicationError::Validation {
+            path: payload.clone(),
+            cause,
+        })?;
+        Ok(PreparedSwap {
+            entry: entry.clone(),
+            partial_root: partial_root.clone(),
+            payload,
+        })
+    })();
+    match operation {
+        Ok(prepared) => Ok(prepared),
+        Err(original) => match remove_marked_entry(&entry) {
+            Ok(()) => {
+                let _ = fs::remove_dir(&partial_root);
+                Err(original)
+            }
+            Err(source) => Err(PublicationError::Cleanup {
+                original: Box::new(original),
+                path: entry,
+                source,
+            }),
+        },
+    }
 }
 
 fn publish_through_partial(
@@ -501,6 +568,52 @@ mod tests {
         assert!(!root.join(PARTIAL_DIRECTORY).exists());
         assert!(stage.exists());
         assert!(validated.get());
+    }
+
+    #[test]
+    fn prepared_swap_is_validated_on_the_destination_filesystem() {
+        let temporary = TempDir::new().unwrap();
+        let stage = temporary.path().join("stage");
+        let root = temporary.path().join("library");
+        fs::create_dir(&stage).unwrap();
+        fs::create_dir(&root).unwrap();
+        fs::write(stage.join("track.flac"), b"audio").unwrap();
+        let validated = Cell::new(false);
+
+        let prepared = prepare_for_swap(&stage, &root, |payload| {
+            validated.set(true);
+            fs::read(payload.join("track.flac"))
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+        .unwrap();
+
+        assert!(validated.get());
+        assert_eq!(
+            fs::read(prepared.payload.join("track.flac")).unwrap(),
+            b"audio"
+        );
+        prepared.discard().unwrap();
+        assert!(!root.join(PARTIAL_DIRECTORY).exists());
+    }
+
+    #[test]
+    fn completed_swap_removes_only_its_empty_marked_container() {
+        let temporary = TempDir::new().unwrap();
+        let stage = temporary.path().join("stage");
+        let root = temporary.path().join("library");
+        let destination = root.join("Artist/Album");
+        fs::create_dir(&stage).unwrap();
+        fs::create_dir(&root).unwrap();
+        fs::write(stage.join("track.flac"), b"audio").unwrap();
+        let prepared = prepare_for_swap(&stage, &root, |_| Ok(())).unwrap();
+        fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        exclusive_rename(&prepared.payload, &destination).unwrap();
+
+        assert_eq!(prepared.finish(), None);
+
+        assert_eq!(fs::read(destination.join("track.flac")).unwrap(), b"audio");
+        assert!(!root.join(PARTIAL_DIRECTORY).exists());
     }
 
     #[test]

@@ -15,11 +15,14 @@ pub use cleanup::{
     AbandonedPartial, CleanupError, find as find_abandoned, remove as remove_abandoned,
 };
 use copy::{CopyError, copy_to_stage, groom};
-use publication::{PublicationError, PublicationRoute, publish};
+use publication::{PublicationError, PublicationRoute, prepare_for_swap, publish};
 use space::{SpaceWarning, required_space};
 use validation::{ValidationError, validate};
 
 use crate::plan::{ApplyReport, GroomingPlan};
+use crate::replacement::{
+    ReplacementContext, ReplacementSwap, ReplacementSwapReport, detect, swap_prepared,
+};
 use crate::source::{SourceInspection, SourceObjectKind, capture_snapshot};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -158,6 +161,144 @@ impl ApplyEngine {
             }
         }
     }
+
+    pub fn apply_replacement(
+        &self,
+        source: &SourceInspection,
+        plan: &GroomingPlan,
+        context: &ReplacementContext,
+        retention: ReplacementRetention,
+        progress: &mut dyn ApplyProgress,
+    ) -> Result<ReplacementApplyReport, ApplyFailure> {
+        report_stage(progress, ApplyStage::Preflight)?;
+        recheck_source(source)?;
+        let current = detect(source, plan).map_err(|error| {
+            ApplyFailure::new(
+                ApplyStage::Preflight,
+                Some(context.active_path.clone()),
+                error.to_string(),
+            )
+        })?;
+        if current.as_ref() != Some(context) {
+            return Err(ApplyFailure::new(
+                ApplyStage::Preflight,
+                Some(context.active_path.clone()),
+                "replacement context changed after confirmation",
+            ));
+        }
+
+        let required = required_space(content_bytes(source, plan));
+        let mut warnings = Vec::new();
+        check_space(&self.temporary_root, required, &mut warnings)?;
+        check_space(&plan.destination_root, required, &mut warnings)?;
+        let temporary = tempfile::Builder::new()
+            .prefix("music-groomer-apply-")
+            .tempdir_in(&self.temporary_root)
+            .map_err(|error| {
+                ApplyFailure::new(
+                    ApplyStage::Preflight,
+                    Some(self.temporary_root.clone()),
+                    format!("cannot create temporary staging: {error}"),
+                )
+            })?;
+        let stage = temporary.path().join("result");
+        let operation: Result<_, ApplyFailure> = (|| {
+            report_stage(progress, ApplyStage::Copying)?;
+            copy_to_stage(source, plan, &stage).map_err(copy_failure(ApplyStage::Copying))?;
+            report_stage(progress, ApplyStage::Grooming)?;
+            groom(plan, &stage).map_err(copy_failure(ApplyStage::Grooming))?;
+            report_stage(progress, ApplyStage::Validating)?;
+            let validation = validate(source, plan, &stage).map_err(validation_failure)?;
+            report_stage(progress, ApplyStage::Publishing)?;
+            let prepared = prepare_for_swap(&stage, &plan.destination_root, |payload| {
+                validate(source, plan, payload)
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+            })
+            .map_err(publication_failure)?;
+            let swap = ReplacementSwap {
+                context: context.clone(),
+                prepared_replacement: prepared.payload.clone(),
+                display_label: retention.display_label,
+                retained_at: retention.retained_at,
+                protected_until: retention.protected_until,
+            };
+            match swap_prepared(&swap) {
+                Ok(report) => {
+                    if let Some(warning) = prepared.finish() {
+                        warnings.push(format!(
+                            "The replacement succeeded, but publication cleanup was incomplete: {warning}"
+                        ));
+                    }
+                    Ok((validation, report))
+                }
+                Err(error) if error.rollback_incomplete() => {
+                    let mut failure = ApplyFailure::new(
+                        ApplyStage::Publishing,
+                        Some(context.active_path.clone()),
+                        error.to_string(),
+                    );
+                    failure.source_untouched = false;
+                    failure.destination_published = true;
+                    failure.cleanup = CleanupOutcome::Failed(format!(
+                        "prepared replacement remains at {} for manual recovery",
+                        prepared.payload.display()
+                    ));
+                    Err(failure)
+                }
+                Err(error) => {
+                    let cleanup = prepared.discard().err().map(|error| error.to_string());
+                    let mut failure = ApplyFailure::new(
+                        ApplyStage::Publishing,
+                        Some(context.active_path.clone()),
+                        error.to_string(),
+                    );
+                    failure.cleanup =
+                        cleanup.map_or(CleanupOutcome::Complete, CleanupOutcome::Failed);
+                    Err(failure)
+                }
+            }
+        })();
+
+        match operation {
+            Ok((validation, replacement)) => {
+                if let Err(error) = temporary.close() {
+                    warnings.push(format!(
+                        "The replacement succeeded, but temporary cleanup failed: {error}"
+                    ));
+                }
+                Ok(ReplacementApplyReport {
+                    apply: ApplyReport {
+                        destination: plan.destination.clone(),
+                        tracks_validated: validation.tracks,
+                        artwork_validated: validation.artwork_files > 0,
+                        source_unchanged: false,
+                        warnings,
+                        publication_copied: true,
+                    },
+                    replacement,
+                })
+            }
+            Err(mut failure) => {
+                let temporary_cleanup = temporary.close().err().map(|error| error.to_string());
+                failure.cleanup = merge_cleanup(failure.cleanup, temporary_cleanup);
+                Err(failure)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReplacementRetention {
+    pub display_label: String,
+    pub retained_at: u64,
+    pub protected_until: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReplacementApplyReport {
+    pub apply: ApplyReport,
+    pub replacement: ReplacementSwapReport,
 }
 
 fn report_stage(progress: &mut dyn ApplyProgress, stage: ApplyStage) -> Result<(), ApplyFailure> {

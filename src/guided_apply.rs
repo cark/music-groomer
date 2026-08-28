@@ -7,15 +7,18 @@ mod tests;
 use std::fmt;
 use std::io;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::apply::{
-    ApplyEngine, ApplyFailure, ApplyProgress, ApplyStage, find_abandoned, remove_abandoned,
+    ApplyEngine, ApplyFailure, ApplyProgress, ApplyStage, ReplacementRetention, find_abandoned,
+    remove_abandoned,
 };
 use crate::artwork_viewer::ArtworkViewer;
 use crate::config::AppConfig;
 use crate::guided_matching::{GuidedMatchResult, revise_artwork};
 use crate::plan::GroomingPlan;
 use crate::planning::build_plan;
+use crate::replacement::{ReplacementContext, detect};
 use crate::source::SourceInspection;
 use crate::terminal::{Action, ActionMenu, Interaction, MenuId, SemanticRole, UiLine, byte_count};
 
@@ -24,6 +27,7 @@ pub enum GuidedApplyError {
     Io(io::Error),
     Planning(String),
     SourceChanged(ApplyFailure),
+    Replacement(String),
 }
 
 impl fmt::Display for GuidedApplyError {
@@ -35,6 +39,7 @@ impl fmt::Display for GuidedApplyError {
                 formatter,
                 "the preview is no longer valid; inspect the source again ({error})"
             ),
+            Self::Replacement(error) => write!(formatter, "replacement cannot proceed: {error}"),
         }
     }
 }
@@ -69,15 +74,22 @@ pub fn run_with_plan<V: ArtworkViewer>(
     let menu = ActionMenu::for_id(MenuId::ExactPreview);
 
     loop {
-        render::summary(interaction, &plan)?;
+        let replacement = detect(source, &plan)
+            .map_err(|error| GuidedApplyError::Replacement(error.to_string()))?;
+        render::summary(interaction, &plan, replacement.as_ref())?;
         let answer = interaction.prompt(menu.prompt("Choose: "))?;
         match menu.action(&answer) {
             Some(Action::Apply) => {
-                if !confirm_apply(interaction, &plan)? {
+                let confirmed = if let Some(replacement) = &replacement {
+                    confirm_replacement(interaction, replacement)?
+                } else {
+                    confirm_apply(interaction, &plan)?
+                };
+                if !confirmed {
                     interaction.prose("Apply not confirmed; returning to the preview.")?;
                     continue;
                 }
-                match apply(interaction, source, &plan)? {
+                match apply(interaction, source, &plan, replacement.as_ref(), &config)? {
                     ApplyOutcome::Applied => return Ok(()),
                     ApplyOutcome::Retry => {}
                     ApplyOutcome::Reinspect(failure) => {
@@ -119,14 +131,48 @@ fn apply(
     interaction: &mut impl Interaction,
     source: &SourceInspection,
     plan: &GroomingPlan,
+    replacement: Option<&ReplacementContext>,
+    config: &AppConfig,
 ) -> Result<ApplyOutcome, GuidedApplyError> {
     interaction.section_heading("Applying confirmed plan")?;
     let result = {
         let mut progress = InteractionApplyProgress(interaction);
-        ApplyEngine::default().apply(source, plan, &mut progress)
+        if let Some(context) = replacement {
+            let retained_at = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|error| GuidedApplyError::Replacement(error.to_string()))?
+                .as_secs();
+            let grace_seconds = config
+                .recovery_grace_days()
+                .map_err(|error| GuidedApplyError::Replacement(error.to_string()))?
+                .checked_mul(24 * 60 * 60)
+                .ok_or_else(|| {
+                    GuidedApplyError::Replacement("recovery grace period is too large".into())
+                })?;
+            let protected_until = retained_at.checked_add(grace_seconds).ok_or_else(|| {
+                GuidedApplyError::Replacement("recovery protection deadline overflows".into())
+            })?;
+            ApplyEngine::default()
+                .apply_replacement(
+                    source,
+                    plan,
+                    context,
+                    ReplacementRetention {
+                        display_label: plan.source_label.clone(),
+                        retained_at,
+                        protected_until,
+                    },
+                    &mut progress,
+                )
+                .map(|report| (report.apply, Some(report.replacement)))
+        } else {
+            ApplyEngine::default()
+                .apply(source, plan, &mut progress)
+                .map(|report| (report, None))
+        }
     };
     match result {
-        Ok(report) => {
+        Ok((report, replacement)) => {
             interaction.section_heading("Grooming complete")?;
             interaction.success("✓ The validated result is ready in the library.")?;
             interaction.path_field("Destination", report.destination.display().to_string())?;
@@ -140,7 +186,16 @@ fn apply(
                 },
             )?;
             interaction.field("Validation", "passed")?;
-            interaction.field("Source", "untouched")?;
+            if let Some(replacement) = replacement {
+                interaction.field("Selected release", "replaced after validation")?;
+                interaction.path_field(
+                    "Retained recovery copy",
+                    replacement.retained_path.display().to_string(),
+                )?;
+                interaction.prose("  Use `music-groomer recovery` to manage or restore it.")?;
+            } else {
+                interaction.field("Source", "untouched")?;
+            }
             for warning in report.warnings {
                 interaction.warning(format!("Warning: {warning}"))?;
             }
@@ -196,6 +251,35 @@ fn confirm_apply(interaction: &mut impl Interaction, plan: &GroomingPlan) -> io:
         match answer.as_str() {
             "" | "y" | "yes" => return Ok(true),
             "n" | "no" => return Ok(false),
+            _ => interaction.error("Please answer Yes or No.")?,
+        }
+    }
+}
+
+fn confirm_replacement(
+    interaction: &mut impl Interaction,
+    replacement: &ReplacementContext,
+) -> io::Result<bool> {
+    interaction.section_heading("REPLACE EXISTING RELEASE")?;
+    interaction.warning("Warning: the current library release will stop being active.")?;
+    interaction.path_field(
+        "Current release",
+        replacement.active_path.display().to_string(),
+    )?;
+    interaction.path_field(
+        "New active release",
+        replacement.destination.display().to_string(),
+    )?;
+    interaction.prose("  The complete current version will be retained for recovery.")?;
+    loop {
+        let answer = interaction
+            .prompt(UiLine::confirmation_prompt(
+                "Proceed with replacement? [y/N]: ",
+            ))?
+            .to_ascii_lowercase();
+        match answer.as_str() {
+            "y" | "yes" => return Ok(true),
+            "" | "n" | "no" => return Ok(false),
             _ => interaction.error("Please answer Yes or No.")?,
         }
     }

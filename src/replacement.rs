@@ -56,6 +56,9 @@ pub fn detect(
         ));
     }
     let destination = library_root.join(relative_destination);
+    if destination != active_path && destination.starts_with(&active_path) {
+        return Err(ReplacementError::DestinationInsideSource(destination));
+    }
     match fs::symlink_metadata(&destination) {
         Ok(metadata) => {
             if !metadata.file_type().is_dir() {
@@ -99,6 +102,7 @@ pub enum ReplacementError {
     UnsafeSource(PathBuf),
     RecoverySource(PathBuf),
     DestinationOutsideRoot(PathBuf),
+    DestinationInsideSource(PathBuf),
     ExternalCollision(PathBuf),
     Io(PathBuf, std::io::Error),
 }
@@ -119,6 +123,11 @@ impl fmt::Display for ReplacementError {
             Self::DestinationOutsideRoot(path) => write!(
                 formatter,
                 "planned destination is outside the selected library root: {}",
+                path.display()
+            ),
+            Self::DestinationInsideSource(path) => write!(
+                formatter,
+                "the replacement destination is inside the selected active release: {}",
                 path.display()
             ),
             Self::ExternalCollision(path) => write!(
@@ -170,6 +179,21 @@ mod tests {
         let error = detect(&source, &plan(&library, occupied.clone())).unwrap_err();
 
         assert!(matches!(error, ReplacementError::ExternalCollision(path) if path == occupied));
+    }
+
+    #[test]
+    fn replacement_destination_cannot_be_nested_inside_active_release() {
+        let temporary = TempDir::new().unwrap();
+        let library = temporary.path().join("library");
+        let active = library.join("Artist/Album");
+        fs::create_dir_all(&active).unwrap();
+        let source = inspection(&active, SourceKind::AlbumDirectory);
+        let nested = active.join("New Album");
+
+        let error = detect(&source, &plan(&library, nested.clone())).unwrap_err();
+
+        assert!(matches!(error, ReplacementError::DestinationInsideSource(path) if path == nested));
+        assert!(active.exists());
     }
 
     #[test]

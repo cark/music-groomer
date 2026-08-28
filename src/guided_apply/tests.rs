@@ -134,6 +134,99 @@ fn blank_action_and_declined_apply_both_return_to_the_exact_preview() {
     assert!(!destination.exists());
 }
 
+#[test]
+fn replacement_preview_and_confirmation_default_to_no_without_moving_anything() {
+    let temporary = TempDir::new().unwrap();
+    let (active, library, source, matched) = prepared_replacement_session(&temporary);
+    let mut config = AppConfig::default();
+    let mut interaction = Scripted::new(["a", "", "c"]);
+    let plan = choose_initial_destination(
+        &mut interaction,
+        &source,
+        &matched,
+        &mut config,
+        Some(&library),
+    )
+    .unwrap()
+    .unwrap();
+    let destination = plan.destination.clone();
+
+    run_with_plan(
+        &mut interaction,
+        &source,
+        matched,
+        config,
+        plan,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    assert!(interaction.transcript.contains("REPLACEMENT:"));
+    assert!(interaction.transcript.contains("REPLACE EXISTING RELEASE"));
+    assert!(
+        interaction
+            .transcript
+            .contains("Proceed with replacement? [y/N]:")
+    );
+    assert_eq!(
+        interaction
+            .transcript
+            .matches("Exact grooming preview")
+            .count(),
+        2
+    );
+    assert!(active.exists());
+    assert!(!destination.exists());
+}
+
+#[test]
+fn explicit_replacement_confirmation_retains_old_album_and_activates_new_one() {
+    let temporary = TempDir::new().unwrap();
+    let (active, library, source, matched) = prepared_replacement_session(&temporary);
+    let old_bytes = fs::read(active.join("seed.flac")).unwrap();
+    let mut config = AppConfig::default();
+    let mut interaction = Scripted::new(["a", "y"]);
+    let plan = choose_initial_destination(
+        &mut interaction,
+        &source,
+        &matched,
+        &mut config,
+        Some(&library),
+    )
+    .unwrap()
+    .unwrap();
+    let destination = plan.destination.clone();
+
+    run_with_plan(
+        &mut interaction,
+        &source,
+        matched,
+        config,
+        plan,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    assert!(!active.exists());
+    assert!(destination.join("01 - Track.flac").exists());
+    assert!(interaction.transcript.contains("Retained recovery copy"));
+    let store = crate::recovery::RecoveryStore::open_existing(&library)
+        .unwrap()
+        .unwrap();
+    let index = store.load_index().unwrap();
+    let retained = &index.lineages[0].retained_versions[0];
+    assert_eq!(
+        fs::read(
+            store
+                .retained_payload_path(&index.lineages[0].lineage_id, &retained.version_id)
+                .unwrap()
+                .join("seed.flac")
+        )
+        .unwrap(),
+        old_bytes
+    );
+}
+
 fn prepared_session(
     temporary: &TempDir,
 ) -> (PathBuf, PathBuf, SourceInspection, GuidedMatchResult) {
@@ -144,14 +237,33 @@ fn prepared_session(
     let mut source = SourceInspector::default().inspect(&source_path).unwrap();
     source.audio[0].tags.title = Some("Track".into());
     source.audio[0].tags.artist = Some("Artist".into());
-    let (inspection, _) = source_inspection(&source);
+    let matched = matched_result(&source);
+    (source_path, library, source, matched)
+}
+
+fn prepared_replacement_session(
+    temporary: &TempDir,
+) -> (PathBuf, PathBuf, SourceInspection, GuidedMatchResult) {
+    let library = temporary.path().join("library");
+    let active = library.join("Artist/Old Album");
+    fs::create_dir_all(&active).unwrap();
+    fs::copy(fixture("seed.flac"), active.join("seed.flac")).unwrap();
+    let mut source = SourceInspector::default().inspect(&active).unwrap();
+    source.audio[0].tags.title = Some("Track".into());
+    source.audio[0].tags.artist = Some("Artist".into());
+    let matched = matched_result(&source);
+    (active, library, source, matched)
+}
+
+fn matched_result(source: &SourceInspection) -> GuidedMatchResult {
+    let (inspection, _) = source_inspection(source);
     let ranked = match MatchPolicy::default().decide(&inspection, vec![candidate()]) {
         MatchDecision::Selected { selected, .. } => *selected,
         MatchDecision::NeedsChoice(candidates) | MatchDecision::NoUsableMatch(candidates) => {
             candidates.into_iter().next().unwrap()
         }
     };
-    let matched = GuidedMatchResult {
+    GuidedMatchResult {
         metadata: MetadataSelection::Provider(Box::new(ranked)),
         metadata_provenance: MetadataProvenance::MusicBrainz,
         candidates: Vec::new(),
@@ -160,8 +272,7 @@ fn prepared_session(
         identification: None,
         warnings: Vec::new(),
         match_selection: MatchSelection::UserChosen,
-    };
-    (source_path, library, source, matched)
+    }
 }
 
 fn candidate() -> CandidateRelease {

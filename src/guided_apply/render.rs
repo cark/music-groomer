@@ -1,10 +1,27 @@
 use std::io;
 
 use crate::plan::{GroomingPlan, MatchSelection, MetadataBasis};
+use crate::replacement::ReplacementContext;
 use crate::terminal::{Interaction, SemanticRole, UiLine};
 
-pub fn summary(interaction: &mut impl Interaction, plan: &GroomingPlan) -> io::Result<()> {
+pub fn summary(
+    interaction: &mut impl Interaction,
+    plan: &GroomingPlan,
+    replacement: Option<&ReplacementContext>,
+) -> io::Result<()> {
     interaction.section_heading("Exact grooming preview")?;
+    if let Some(replacement) = replacement {
+        interaction.warning("  REPLACEMENT: this selected library release will be replaced")?;
+        interaction.path_field(
+            "Current release",
+            replacement.active_path.display().to_string(),
+        )?;
+        interaction.path_field(
+            "Replacement path",
+            replacement.destination.display().to_string(),
+        )?;
+        interaction.prose("  The complete current release will be retained for recovery.")?;
+    }
     match &plan.metadata {
         MetadataBasis::MusicBrainz(release) => {
             interaction.field("Metadata", release.human_label())?;

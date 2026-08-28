@@ -92,6 +92,46 @@ fn forced_cross_filesystem_route_is_complete_and_cleans_both_work_areas() {
 }
 
 #[test]
+fn validated_album_replacement_retains_old_release_and_cleans_both_staging_areas() {
+    let temporary = TempDir::new().unwrap();
+    let library = temporary.path().join("library");
+    let active = library.join("Test Artist/Old Album");
+    let temporary_root = temporary.path().join("temporary");
+    fs::create_dir_all(&active).unwrap();
+    fs::create_dir(&temporary_root).unwrap();
+    let source_track = active.join("seed.flac");
+    fs::copy(fixture_path("seed.flac"), &source_track).unwrap();
+    let old_bytes = fs::read(&source_track).unwrap();
+    let inspection = SourceInspector::default().inspect(&active).unwrap();
+    let plan = test_plan(&active, Path::new("seed.flac"), &library, "flac");
+    let context = detect(&inspection, &plan).unwrap().unwrap();
+
+    let report = ApplyEngine::in_temporary_root(temporary_root.clone())
+        .apply_replacement(
+            &inspection,
+            &plan,
+            &context,
+            ReplacementRetention {
+                display_label: "Test Artist — Old Album".into(),
+                retained_at: 100,
+                protected_until: 200,
+            },
+            &mut (),
+        )
+        .unwrap();
+
+    assert!(!active.exists());
+    assert!(plan.destination.join("01 - Groomed.flac").exists());
+    assert_eq!(
+        fs::read(report.replacement.retained_path.join("seed.flac")).unwrap(),
+        old_bytes
+    );
+    assert!(!report.apply.source_unchanged);
+    assert!(!library.join(publication::PARTIAL_DIRECTORY).exists());
+    assert!(fs::read_dir(temporary_root).unwrap().next().is_none());
+}
+
+#[test]
 fn changed_source_invalidates_preview_before_staging() {
     let environment = Environment::new("seed.flac");
     fs::write(&environment.source_path, b"changed after inspection").unwrap();

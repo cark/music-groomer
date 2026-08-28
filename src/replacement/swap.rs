@@ -458,6 +458,12 @@ pub enum SwapError {
     },
 }
 
+impl SwapError {
+    pub fn rollback_incomplete(&self) -> bool {
+        matches!(self, Self::Rollback { .. })
+    }
+}
+
 impl From<RecoveryError> for SwapError {
     fn from(error: RecoveryError) -> Self {
         Self::Recovery(error)
