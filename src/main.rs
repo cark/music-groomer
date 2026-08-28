@@ -16,7 +16,7 @@ use music_groomer::provider::{
     AcoustId, CoverArtArchive, MusicBrainzProvider, ProviderCache, source_inspection,
 };
 use music_groomer::source::SourceInspector;
-use music_groomer::terminal::{Interaction, StdioInteraction, UiLine};
+use music_groomer::terminal::{Interaction, StdioInteraction, UiLine, byte_count};
 
 mod cli;
 
@@ -165,18 +165,6 @@ fn with_stdio_interaction<T, E>(
         StdioInteraction::new(stdin.lock(), stdout, styling)
     };
     action(&mut interaction)
-}
-
-fn byte_count(bytes: u64) -> String {
-    const MIB: u64 = 1024 * 1024;
-    const KIB: u64 = 1024;
-    if bytes >= MIB {
-        format!("{:.1} MiB", bytes as f64 / MIB as f64)
-    } else if bytes >= KIB {
-        format!("{:.1} KiB", bytes as f64 / KIB as f64)
-    } else {
-        format!("{bytes} B")
-    }
 }
 
 fn run_demo(scenario: Option<&str>, output: Option<PathBuf>) -> Result<(), String> {

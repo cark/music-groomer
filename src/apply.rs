@@ -89,7 +89,7 @@ impl ApplyEngine {
     ) -> Result<ApplyReport, ApplyFailure> {
         report_stage(progress, ApplyStage::Preflight)?;
         recheck_source(source)?;
-        preflight_destination(plan)?;
+        preflight_destination(source, plan)?;
         let required = required_space(content_bytes(source, plan));
         let mut warnings = Vec::new();
         check_space(&self.temporary_root, required, &mut warnings)?;
@@ -152,10 +152,8 @@ impl ApplyEngine {
                 })
             }
             Err(mut failure) => {
-                failure.cleanup = match temporary.close() {
-                    Ok(()) => CleanupOutcome::Complete,
-                    Err(error) => CleanupOutcome::Failed(error.to_string()),
-                };
+                let temporary_cleanup = temporary.close().err().map(|error| error.to_string());
+                failure.cleanup = merge_cleanup(failure.cleanup, temporary_cleanup);
                 Err(failure)
             }
         }
@@ -221,13 +219,50 @@ fn source_path(source: &SourceInspection, relative: &Path) -> PathBuf {
     }
 }
 
-fn preflight_destination(plan: &GroomingPlan) -> Result<(), ApplyFailure> {
+fn preflight_destination(
+    source: &SourceInspection,
+    plan: &GroomingPlan,
+) -> Result<(), ApplyFailure> {
     if !plan.destination_root.is_dir() {
         return Err(ApplyFailure::new(
             ApplyStage::Preflight,
             Some(plan.destination_root.clone()),
             "the selected destination root is not an existing directory",
         ));
+    }
+    if source.kind == crate::domain::SourceKind::AlbumDirectory {
+        let canonical_source = source.source.canonicalize().map_err(|error| {
+            ApplyFailure::new(
+                ApplyStage::Preflight,
+                Some(source.source.clone()),
+                format!("cannot resolve the selected source: {error}"),
+            )
+        })?;
+        let canonical_root = plan.destination_root.canonicalize().map_err(|error| {
+            ApplyFailure::new(
+                ApplyStage::Preflight,
+                Some(plan.destination_root.clone()),
+                format!("cannot resolve the destination root: {error}"),
+            )
+        })?;
+        let relative = plan
+            .destination
+            .strip_prefix(&plan.destination_root)
+            .map_err(|_| {
+                ApplyFailure::new(
+                    ApplyStage::Preflight,
+                    Some(plan.destination.clone()),
+                    "the final destination is outside its selected root",
+                )
+            })?;
+        let resolved_destination = canonical_root.join(relative);
+        if resolved_destination.starts_with(&canonical_source) {
+            return Err(ApplyFailure::new(
+                ApplyStage::Preflight,
+                Some(resolved_destination),
+                "the result cannot be published inside the selected source album",
+            ));
+        }
     }
     match plan.destination.try_exists() {
         Ok(false) => Ok(()),
@@ -288,11 +323,30 @@ fn validation_failure(error: ValidationError) -> ApplyFailure {
 }
 
 fn publication_failure(error: PublicationError) -> ApplyFailure {
-    ApplyFailure::new(
-        ApplyStage::Publishing,
-        Some(error.path().to_owned()),
-        error.to_string(),
-    )
+    let stage = if matches!(&error, PublicationError::Validation { .. }) {
+        ApplyStage::Validating
+    } else {
+        ApplyStage::Publishing
+    };
+    let cleanup_failure = error.cleanup_failure();
+    let mut failure = ApplyFailure::new(stage, Some(error.path().to_owned()), error.to_string());
+    if let Some(cause) = cleanup_failure {
+        failure.cleanup = CleanupOutcome::Failed(cause);
+    }
+    failure
+}
+
+fn merge_cleanup(existing: CleanupOutcome, temporary_failure: Option<String>) -> CleanupOutcome {
+    match (existing, temporary_failure) {
+        (CleanupOutcome::Failed(existing), Some(temporary)) => CleanupOutcome::Failed(format!(
+            "{existing}; temporary staging cleanup also failed: {temporary}"
+        )),
+        (CleanupOutcome::Failed(existing), None) => CleanupOutcome::Failed(existing),
+        (_, Some(temporary)) => {
+            CleanupOutcome::Failed(format!("temporary staging cleanup failed: {temporary}"))
+        }
+        (_, None) => CleanupOutcome::Complete,
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

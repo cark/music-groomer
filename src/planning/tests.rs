@@ -8,8 +8,8 @@ use crate::matching_ui::MetadataSelection;
 use crate::plan::{ArtworkOrigin, MatchSelection};
 use crate::provider::{ProviderArtwork, source_inspection};
 use crate::source::{
-    ArtworkCandidate, ArtworkFormat, AudioFormat, AudioProperties, AudioTags, InspectedAudio,
-    SourceInspection,
+    AncillaryFile, ArtworkCandidate, ArtworkFormat, AudioFormat, AudioProperties, AudioTags,
+    InspectedAudio, SourceInspection,
 };
 
 use super::*;
@@ -77,6 +77,52 @@ fn selected_source_artwork_gets_a_canonical_native_name() {
         plan.artwork.origin,
         ArtworkOrigin::SourceSidecar { ref source_name } if source_name == "folder.png"
     ));
+}
+
+#[test]
+fn ancillary_collision_with_canonical_track_is_rejected_before_preview() {
+    let mut source = loose_source();
+    source.ancillary.push(AncillaryFile {
+        relative_path: PathBuf::from("01 - GROOVE IS IN THE HEART.MP3"),
+        bytes: 1,
+    });
+    let candidate = single_candidate();
+    let (inspection, _) = source_inspection(&source);
+    let ranked = first_ranked(MatchPolicy::default().decide(&inspection, vec![candidate]));
+    let matched = result(
+        MetadataSelection::Provider(Box::new(ranked)),
+        ArtworkSelection::None,
+    );
+
+    let error = build_plan(&source, &matched, Path::new("/library")).unwrap_err();
+
+    assert!(matches!(error, PlanningError::Collision(_)));
+}
+
+#[test]
+fn case_insensitive_file_directory_collision_is_rejected_before_preview() {
+    let mut source = loose_source();
+    source.ancillary.push(AncillaryFile {
+        relative_path: PathBuf::from("01 - Groove Is in the Heart.mp3/notes.txt"),
+        bytes: 1,
+    });
+    source.snapshot.push(crate::source::SourceSnapshotEntry {
+        relative_path: PathBuf::from("01 - Groove Is in the Heart.mp3"),
+        kind: crate::source::SourceObjectKind::Directory,
+        bytes: 0,
+        modified: None,
+    });
+    let candidate = single_candidate();
+    let (inspection, _) = source_inspection(&source);
+    let ranked = first_ranked(MatchPolicy::default().decide(&inspection, vec![candidate]));
+    let matched = result(
+        MetadataSelection::Provider(Box::new(ranked)),
+        ArtworkSelection::None,
+    );
+
+    let error = build_plan(&source, &matched, Path::new("/library")).unwrap_err();
+
+    assert!(matches!(error, PlanningError::Collision(_)));
 }
 
 fn loose_source() -> SourceInspection {

@@ -17,7 +17,7 @@ use crate::guided_matching::{GuidedMatchResult, revise_artwork};
 use crate::plan::GroomingPlan;
 use crate::planning::build_plan;
 use crate::source::SourceInspection;
-use crate::terminal::{Interaction, SemanticRole, UiLine};
+use crate::terminal::{Interaction, SemanticRole, UiLine, byte_count};
 
 #[derive(Debug)]
 pub enum GuidedApplyError {
@@ -242,18 +242,6 @@ fn confirm_remove(interaction: &mut impl Interaction) -> io::Result<bool> {
             "n" | "no" => return Ok(false),
             _ => interaction.error("Please answer Yes or No.")?,
         }
-    }
-}
-
-fn byte_count(bytes: u64) -> String {
-    const MIB: u64 = 1024 * 1024;
-    const KIB: u64 = 1024;
-    if bytes >= MIB {
-        format!("{:.1} MiB", bytes as f64 / MIB as f64)
-    } else if bytes >= KIB {
-        format!("{:.1} KiB", bytes as f64 / KIB as f64)
-    } else {
-        format!("{bytes} B")
     }
 }
 

@@ -6,6 +6,18 @@ use std::io;
 pub use model::{SemanticRole, UiLine, UiSpan};
 pub use render::StdioInteraction;
 
+pub fn byte_count(bytes: u64) -> String {
+    const MIB: u64 = 1024 * 1024;
+    const KIB: u64 = 1024;
+    if bytes >= MIB {
+        format!("{:.1} MiB", bytes as f64 / MIB as f64)
+    } else if bytes >= KIB {
+        format!("{:.1} KiB", bytes as f64 / KIB as f64)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
 pub trait Interaction {
     fn present(&mut self, line: UiLine) -> io::Result<()>;
     fn prompt(&mut self, prompt: UiLine) -> io::Result<String>;

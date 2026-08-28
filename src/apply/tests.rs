@@ -130,6 +130,31 @@ fn existing_release_collision_is_never_overwritten() {
 }
 
 #[test]
+fn album_result_cannot_be_published_inside_its_source() {
+    let temporary = TempDir::new().unwrap();
+    let album = temporary.path().join("album");
+    let library_inside_source = album.join("library");
+    fs::create_dir(&album).unwrap();
+    fs::create_dir(&library_inside_source).unwrap();
+    fs::copy(fixture_path("seed.flac"), album.join("source.flac")).unwrap();
+    let inspection = SourceInspector::default().inspect(&album).unwrap();
+    let plan = test_plan(
+        &album,
+        Path::new("source.flac"),
+        &library_inside_source,
+        "flac",
+    );
+
+    let failure = ApplyEngine::default()
+        .apply(&inspection, &plan, &mut ())
+        .unwrap_err();
+
+    assert_eq!(failure.stage, ApplyStage::Preflight);
+    assert!(failure.cause.contains("inside the selected source album"));
+    assert!(!plan.destination.exists());
+}
+
+#[test]
 fn failed_validation_cleans_staging_and_publishes_nothing() {
     let mut environment = Environment::new("seed.flac");
     environment.plan.artwork = ArtworkChoice {
@@ -235,33 +260,7 @@ impl Environment {
         fs::copy(fixture_path(fixture), &source_path).unwrap();
         let inspection = SourceInspector::default().inspect(&source_path).unwrap();
         let extension = inspection.audio[0].format.canonical_extension();
-        let destination = library.join("Test Artist/2000 - Test Album");
-        let plan = GroomingPlan {
-            source_label: source_path.display().to_string(),
-            metadata: MetadataBasis::ExistingTags,
-            match_selection: MatchSelection::UserChosen,
-            match_reasons: vec!["test plan".into()],
-            destination_root: library.clone(),
-            destination: destination.clone(),
-            tracks: vec![TrackPlan {
-                source_relative: PathBuf::from(fixture),
-                destination: destination.join(format!("01 - Groomed.{extension}")),
-                tag_changes: Vec::new(),
-                planned_tags: Some(tags()),
-            }],
-            ancillary: Vec::new(),
-            ancillary_directories: Vec::new(),
-            artwork: ArtworkChoice {
-                origin: ArtworkOrigin::None,
-                label: "No sidecar artwork".into(),
-                dimensions: None,
-                output_name: None,
-            },
-            artwork_alternatives: Vec::new(),
-            warnings: Vec::new(),
-            preserved_embedded_artwork: 0,
-            archive_artwork_bytes: None,
-        };
+        let plan = test_plan(&source_path, Path::new(fixture), &library, extension);
         Self {
             _temporary: temporary,
             source_path,
@@ -279,6 +278,41 @@ impl Environment {
         } else {
             engine
         }
+    }
+}
+
+fn test_plan(
+    source: &Path,
+    source_relative: &Path,
+    library: &Path,
+    extension: &str,
+) -> GroomingPlan {
+    let destination = library.join("Test Artist/2000 - Test Album");
+    GroomingPlan {
+        source_label: source.display().to_string(),
+        metadata: MetadataBasis::ExistingTags,
+        match_selection: MatchSelection::UserChosen,
+        match_reasons: vec!["test plan".into()],
+        destination_root: library.to_owned(),
+        destination: destination.clone(),
+        tracks: vec![TrackPlan {
+            source_relative: source_relative.to_owned(),
+            destination: destination.join(format!("01 - Groomed.{extension}")),
+            tag_changes: Vec::new(),
+            planned_tags: Some(tags()),
+        }],
+        ancillary: Vec::new(),
+        ancillary_directories: Vec::new(),
+        artwork: ArtworkChoice {
+            origin: ArtworkOrigin::None,
+            label: "No sidecar artwork".into(),
+            dimensions: None,
+            output_name: None,
+        },
+        artwork_alternatives: Vec::new(),
+        warnings: Vec::new(),
+        preserved_embedded_artwork: 0,
+        archive_artwork_bytes: None,
     }
 }
 

@@ -262,10 +262,50 @@ fn same_filesystem(left: &Path, right: &Path) -> Result<bool, PublicationError> 
 }
 
 #[cfg(windows)]
-fn same_filesystem(_left: &Path, _right: &Path) -> Result<bool, PublicationError> {
-    // A false negative only selects the safe copy-through route. This avoids
-    // guessing across Windows junctions and mounted volumes.
-    Ok(false)
+fn same_filesystem(left: &Path, right: &Path) -> Result<bool, PublicationError> {
+    Ok(windows_volume(left)? == windows_volume(right)?)
+}
+
+#[cfg(windows)]
+fn windows_volume(path: &Path) -> Result<Vec<u16>, PublicationError> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetVolumePathNameW;
+    let canonical = path.canonicalize().map_err(|source| PublicationError::Io {
+        path: path.to_owned(),
+        source,
+    })?;
+    let input = canonical
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let mut output = vec![0_u16; 32_768];
+    // SAFETY: input is a live NUL-terminated UTF-16 path and output is a
+    // writable buffer whose length is passed exactly.
+    let found = unsafe {
+        GetVolumePathNameW(
+            input.as_ptr(),
+            output.as_mut_ptr(),
+            u32::try_from(output.len()).expect("fixed buffer length fits u32"),
+        )
+    };
+    if found == 0 {
+        return Err(PublicationError::Io {
+            path: canonical,
+            source: std::io::Error::last_os_error(),
+        });
+    }
+    let length = output
+        .iter()
+        .position(|value| *value == 0)
+        .unwrap_or(output.len());
+    output.truncate(length);
+    for unit in &mut output {
+        if (*unit >= u16::from(b'A')) && (*unit <= u16::from(b'Z')) {
+            *unit += u16::from(b'a' - b'A');
+        }
+    }
+    Ok(output)
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -357,6 +397,16 @@ impl PublicationError {
             Self::UnsupportedPlatform(path) => path,
         }
     }
+
+    pub fn cleanup_failure(&self) -> Option<String> {
+        match self {
+            Self::Cleanup { path, source, .. } => Some(format!(
+                "publication partial remains at {}: {source}",
+                path.display()
+            )),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for PublicationError {
@@ -411,6 +461,7 @@ impl std::error::Error for PublicationError {}
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
     use tempfile::TempDir;
 
     use super::*;
@@ -442,10 +493,39 @@ mod tests {
         fs::write(stage.join("track.flac"), b"audio").unwrap();
         let destination = root.join("Artist/Album");
 
-        let result = publish(&stage, &root, &destination, true, |_| Ok(())).unwrap();
+        let validated = Cell::new(false);
+        let result = publish(&stage, &root, &destination, true, |payload| {
+            validated.set(true);
+            fs::read(payload.join("track.flac"))
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+        .unwrap();
 
         assert_eq!(result.route, PublicationRoute::DestinationCopy);
         assert_eq!(fs::read(destination.join("track.flac")).unwrap(), b"audio");
+        assert!(!root.join(PARTIAL_DIRECTORY).exists());
+        assert!(stage.exists());
+        assert!(validated.get());
+    }
+
+    #[test]
+    fn failed_destination_copy_validation_publishes_nothing_and_cleans_partial() {
+        let temporary = TempDir::new().unwrap();
+        let stage = temporary.path().join("stage");
+        let root = temporary.path().join("library");
+        fs::create_dir(&stage).unwrap();
+        fs::create_dir(&root).unwrap();
+        fs::write(stage.join("track.flac"), b"audio").unwrap();
+        let destination = root.join("Artist/Album");
+
+        let error = publish(&stage, &root, &destination, true, |_| {
+            Err("injected mismatch".into())
+        })
+        .unwrap_err();
+
+        assert!(matches!(error, PublicationError::Validation { .. }));
+        assert!(!destination.exists());
         assert!(!root.join(PARTIAL_DIRECTORY).exists());
         assert!(stage.exists());
     }
