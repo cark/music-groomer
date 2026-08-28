@@ -89,7 +89,8 @@ subscriber is explicit, synchronous, human-readable, and filtered to
 application-owned targets; structured JSON and always-on logging are deferred.
 The explicit `audio` diagnostic scope may additionally admit only the selected
 tag and container-parser targets; it is not an unrestricted dependency-log
-switch.
+switch. Bridge those libraries' standard Rust `log` records into this same
+subscriber rather than building a second logging path.
 
 ## Apply and cleanup
 

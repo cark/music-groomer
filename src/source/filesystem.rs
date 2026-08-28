@@ -234,6 +234,57 @@ impl SourceInspector {
             bytes = metadata.len()
         );
         let _entered = span.enter();
+        let artwork_probe = artwork::probe(path);
+        match &artwork_probe {
+            Ok(ArtworkProbe::Supported { format, dimensions }) => {
+                let is_root = relative_path
+                    .parent()
+                    .is_none_or(|parent| parent.as_os_str().is_empty());
+                if is_root && let Some(name_priority) = artwork::name_priority(path) {
+                    let actual_extension = path
+                        .extension()
+                        .and_then(|value| value.to_str())
+                        .unwrap_or_default();
+                    if !extension_matches_artwork(actual_extension, *format) {
+                        inspection.notices.push(InspectionNotice::warning(
+                            NoticeKind::ArtworkExtensionMismatch,
+                            Some(relative_path.clone()),
+                            format!(
+                                "{format} content will use canonical artwork name cover.{}",
+                                format.canonical_extension()
+                            ),
+                        ));
+                    }
+                    inspection.artwork.push(ArtworkCandidate {
+                        relative_path: relative_path.clone(),
+                        format: *format,
+                        dimensions: *dimensions,
+                        name_priority,
+                    });
+                }
+                inspection.ancillary.push(AncillaryFile {
+                    relative_path,
+                    bytes: metadata.len(),
+                });
+                tracing::trace!(kind = "image", format = %format, "file classified");
+                return Ok(());
+            }
+            Ok(ArtworkProbe::RecognizedUnsupported(format)) => {
+                inspection.notices.push(InspectionNotice::warning(
+                    NoticeKind::UnsupportedImage,
+                    Some(relative_path.clone()),
+                    format!("{format} cannot be canonical artwork and will be preserved unchanged"),
+                ));
+                inspection.ancillary.push(AncillaryFile {
+                    relative_path,
+                    bytes: metadata.len(),
+                });
+                tracing::trace!(kind = "image", "file classified");
+                return Ok(());
+            }
+            Ok(ArtworkProbe::ProbableUnsupported(_) | ArtworkProbe::NotImage) | Err(_) => {}
+        }
+
         match self.audio.probe(path) {
             Ok(AudioProbe::Supported(audio)) => {
                 let mut audio = *audio;
@@ -276,35 +327,8 @@ impl SourceInspector {
             return Ok(());
         }
 
-        match artwork::probe(path) {
-            Ok(ArtworkProbe::Supported { format, dimensions }) => {
-                let is_root = relative_path
-                    .parent()
-                    .is_none_or(|parent| parent.as_os_str().is_empty());
-                if is_root && let Some(name_priority) = artwork::name_priority(path) {
-                    let actual_extension = path
-                        .extension()
-                        .and_then(|value| value.to_str())
-                        .unwrap_or_default();
-                    if !extension_matches_artwork(actual_extension, format) {
-                        inspection.notices.push(InspectionNotice::warning(
-                            NoticeKind::ArtworkExtensionMismatch,
-                            Some(relative_path.clone()),
-                            format!(
-                                "{format} content will use canonical artwork name cover.{}",
-                                format.canonical_extension()
-                            ),
-                        ));
-                    }
-                    inspection.artwork.push(ArtworkCandidate {
-                        relative_path: relative_path.clone(),
-                        format,
-                        dimensions,
-                        name_priority,
-                    });
-                }
-            }
-            Ok(ArtworkProbe::Unsupported(format)) => {
+        match artwork_probe {
+            Ok(ArtworkProbe::ProbableUnsupported(format)) => {
                 inspection.notices.push(InspectionNotice::warning(
                     NoticeKind::UnsupportedImage,
                     Some(relative_path.clone()),
@@ -312,6 +336,9 @@ impl SourceInspector {
                 ));
             }
             Ok(ArtworkProbe::NotImage) => {}
+            Ok(ArtworkProbe::Supported { .. } | ArtworkProbe::RecognizedUnsupported(_)) => {
+                unreachable!("recognized images return before audio inspection")
+            }
             Err(error) => {
                 inspection.notices.push(InspectionNotice::blocker(
                     NoticeKind::Unreadable,

@@ -11,7 +11,8 @@ pub(super) enum ArtworkProbe {
         format: ArtworkFormat,
         dimensions: (u32, u32),
     },
-    Unsupported(String),
+    RecognizedUnsupported(String),
+    ProbableUnsupported(String),
     NotImage,
 }
 
@@ -31,14 +32,14 @@ pub(super) fn probe(path: &Path) -> io::Result<ArtworkProbe> {
                     .into_dimensions();
                 match dimensions {
                     Ok(dimensions) => Ok(ArtworkProbe::Supported { format, dimensions }),
-                    Err(error) => Ok(ArtworkProbe::Unsupported(format!(
+                    Err(error) => Ok(ArtworkProbe::RecognizedUnsupported(format!(
                         "{format} image failed validation: {error}"
                     ))),
                 }
             }
-            None => Ok(ArtworkProbe::Unsupported(format_label(format))),
+            None => Ok(ArtworkProbe::RecognizedUnsupported(format_label(format))),
         },
-        Err(_) if probable_image_extension(path) => Ok(ArtworkProbe::Unsupported(
+        Err(_) if probable_image_extension(path) => Ok(ArtworkProbe::ProbableUnsupported(
             "unrecognized or damaged image".to_owned(),
         )),
         Err(_) => Ok(ArtworkProbe::NotImage),

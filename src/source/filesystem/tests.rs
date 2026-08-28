@@ -296,6 +296,22 @@ fn readable_but_invalid_artwork_warns_and_is_preserved() {
     assert!(inspection.artwork.is_empty());
 }
 
+#[test]
+fn audio_with_an_image_extension_is_still_recognized_from_its_contents() {
+    let temporary = TempDir::new().expect("temporary directory should be created");
+    let path = temporary.path().join("track.png");
+    fs::copy(fixture("seed.flac"), &path).expect("audio fixture should be copied");
+
+    let inspection = SourceInspector::default()
+        .inspect(temporary.path())
+        .expect("source should remain inspectable");
+
+    assert_eq!(inspection.audio.len(), 1);
+    assert_eq!(inspection.audio[0].relative_path, Path::new("track.png"));
+    assert!(has_notice(&inspection, NoticeKind::ExtensionMismatch));
+    assert!(!has_notice(&inspection, NoticeKind::UnsupportedImage));
+}
+
 #[cfg(unix)]
 #[test]
 fn special_files_block_with_their_path() {

@@ -20,7 +20,7 @@ sha2 = "0.10"
 tempfile = "3"
 toml = "0.9"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
-tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "tracing-log"] }
 ureq = { version = "3", features = ["json"] }
 urlencoding = "2"
 

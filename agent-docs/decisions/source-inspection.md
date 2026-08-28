@@ -48,6 +48,11 @@ blocks the selected item. A genuinely non-audio file remains ancillary even
 when its type is unknown. A probable unsupported image is preserved as
 ancillary but cannot be the canonical cover.
 
+Probe inexpensive image signatures before invoking the audio parser. Content
+recognized as an image must bypass audio parsing; large scans otherwise risk
+expensive false MPEG detection. An image-like filename alone is not enough to
+skip audio recognition, so audio with the wrong extension remains usable.
+
 Missing or contradictory metadata remains inspectable as structured warnings;
 provider matching in milestone 3 may repair it. Only unreadable or corrupt
 audio, unsupported audio, special filesystem objects, and other conditions
@@ -106,6 +111,7 @@ Record owned phase and per-file spans with elapsed times, byte sizes,
 classification, outcomes, errors, and full local paths. Do not record tag
 contents, fingerprints, provider bodies, or credentials. Keep dependency logs
 filtered out by default. `--diagnostics=audio` additionally admits Lofty and
-mp4parse trace events for parser-level investigation while continuing to
-exclude provider and HTTP dependencies. Tests inject temporary paths and never
-write to the user's real application directories.
+mp4parse trace events for parser-level investigation, bridging their standard
+Rust `log` records into the tracing subscriber, while continuing to exclude
+provider and HTTP dependencies. Tests inject temporary paths and never write
+to the user's real application directories.
