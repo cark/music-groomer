@@ -1,6 +1,7 @@
 # Milestone 4 final review corrections
 
-Status: aligned and authorized; implementation and verification in progress.
+Status: implemented and verified; Milestone 4 still requires explicit
+acceptance.
 
 - Create result files and directories with ordinary process defaults governed
   by the invoking user's umask. Preserve contents, not source permissions,

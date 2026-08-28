@@ -25,5 +25,5 @@ decision page.
 
 ## Open questions
 
-No product question is currently open. Milestone 4's aligned final-review
-correction set is authorized and under implementation.
+No product question is currently open. Milestone 4's final-review corrections
+are implemented and verified; the milestone is not yet accepted.

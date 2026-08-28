@@ -12,9 +12,9 @@ The final milestone 3b loose-library-track exercise confirmed the corrected
 single discovery, animated provider feedback, and phase spacing on 2026-08-28.
 The accepted post-milestone-3 review corrections are implemented and verified.
 The user completed the explicitly approved Evolution Apply and re-inspected the
-published ten-track result. Milestone 4's deliberate final review is complete;
-its aligned correction set is under implementation and still requires full
-verification plus explicit acceptance and push permission.
+published ten-track result. Milestone 4's deliberate final review and aligned
+correction set are implemented and verified. Explicit milestone acceptance and
+separate push permission are still required.
 
 ## Task routing
 
