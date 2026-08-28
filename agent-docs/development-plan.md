@@ -270,6 +270,9 @@ Acceptance:
   identify the stage, path and cause where known, source and destination status,
   and cleanup outcome.
 - Interruption and injected failure points leave no final partial album.
+- A minimal Linux, macOS, and Windows CI matrix runs the locked offline suite;
+  explicitly ignored live provider smoke tests stay out of CI, with no cache,
+  artifact, coverage, packaging, or release machinery.
 - Full format, core, CLI, provider-fake, filesystem, and apply suites pass.
 
 ## Milestone 5: real candidate exercise

@@ -104,6 +104,12 @@ not weaken it with a check-then-rename fallback. Ordinary `Ctrl-C` termination
 may occur before or after this syscall, but cannot expose a half-renamed
 directory.
 
+Continuously check that portability with one minimal GitHub Actions matrix on
+standard Linux, macOS, and Windows runners. Run the ordinary locked test suite
+only; the explicitly ignored live provider smoke tests remain opt-in. Add no CI
+caching, artifacts, coverage, badges, packaging, or release automation in this
+milestone.
+
 Validation is the final proof that the staged result matches the confirmed
 preview. Any promised invariant that fails to round-trip blocks publication:
 v0.1 has no Apply-anyway override. Report the exact mismatch, clean handled
