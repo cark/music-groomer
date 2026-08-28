@@ -18,6 +18,8 @@ const INDEX: &str = "index.json";
 const LOCK: &str = ".lock";
 const INDEX_SCHEMA: u8 = 1;
 const RECEIPT_SCHEMA: u8 = 1;
+const VERSION_MARKER: &str = ".music-groomer-version";
+const VERSION_MARKER_SCHEMA: u8 = 1;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -61,6 +63,14 @@ pub struct ActiveReceipt {
     schema: u8,
     pub lineage_id: String,
     pub version_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VersionMarker {
+    schema: u8,
+    lineage_id: String,
+    version_id: String,
 }
 
 impl ActiveReceipt {
@@ -263,6 +273,97 @@ impl RecoveryStore {
             .join("versions")
             .join(version_id)
             .join("payload"))
+    }
+
+    pub fn prepare_retained_payload(
+        &self,
+        lock: &RecoveryLock,
+        lineage_id: &str,
+        version_id: &str,
+    ) -> Result<PathBuf, RecoveryError> {
+        self.verify_lock(lock)?;
+        self.verify_ownership()?;
+        validate_id(lineage_id)?;
+        validate_id(version_id)?;
+        let versions = self.root.join("lineages").join(lineage_id).join("versions");
+        ensure_directory_chain(&self.root, &versions)?;
+        let container = versions.join(version_id);
+        fs::create_dir(&container).map_err(|source| {
+            if source.kind() == std::io::ErrorKind::AlreadyExists {
+                RecoveryError::IdentityCollision(container.clone())
+            } else {
+                RecoveryError::Io(container.clone(), source)
+            }
+        })?;
+        let marker = VersionMarker {
+            schema: VERSION_MARKER_SCHEMA,
+            lineage_id: lineage_id.to_owned(),
+            version_id: version_id.to_owned(),
+        };
+        write_json_new(&container.join(VERSION_MARKER), &marker)?;
+        Ok(container.join("payload"))
+    }
+
+    pub fn verify_retained_payload(
+        &self,
+        lineage_id: &str,
+        version_id: &str,
+    ) -> Result<PathBuf, RecoveryError> {
+        let payload = self.retained_payload_path(lineage_id, version_id)?;
+        let container = payload
+            .parent()
+            .expect("retained payload always has a container");
+        require_directory(container)?;
+        let marker_path = container.join(VERSION_MARKER);
+        let marker: VersionMarker = read_regular_json(&marker_path)?;
+        if marker.schema != VERSION_MARKER_SCHEMA
+            || marker.lineage_id != lineage_id
+            || marker.version_id != version_id
+        {
+            return Err(RecoveryError::IdentityMismatch(container.to_owned()));
+        }
+        require_directory(&payload)?;
+        Ok(payload)
+    }
+
+    pub fn retained_size(&self, lineage_id: &str, version_id: &str) -> Result<u64, RecoveryError> {
+        let payload = self.verify_retained_payload(lineage_id, version_id)?;
+        strict_tree_size(&payload)
+    }
+
+    pub fn discard_prepared_payload(
+        &self,
+        lock: &RecoveryLock,
+        lineage_id: &str,
+        version_id: &str,
+    ) -> Result<(), RecoveryError> {
+        self.verify_lock(lock)?;
+        let payload = self.retained_payload_path(lineage_id, version_id)?;
+        if fs::symlink_metadata(&payload).is_ok() {
+            return Err(RecoveryError::UnsafePath(payload));
+        }
+        let container = payload
+            .parent()
+            .expect("retained payload always has a container");
+        let marker_path = container.join(VERSION_MARKER);
+        let marker: VersionMarker = read_regular_json(&marker_path)?;
+        if marker.schema != VERSION_MARKER_SCHEMA
+            || marker.lineage_id != lineage_id
+            || marker.version_id != version_id
+        {
+            return Err(RecoveryError::IdentityMismatch(container.to_owned()));
+        }
+        fs::remove_file(&marker_path)
+            .map_err(|source| RecoveryError::Io(marker_path.clone(), source))?;
+        fs::remove_dir(container)
+            .map_err(|source| RecoveryError::Io(container.to_owned(), source))?;
+        if let Some(versions) = container.parent() {
+            let _ = fs::remove_dir(versions);
+            if let Some(lineage) = versions.parent() {
+                let _ = fs::remove_dir(lineage);
+            }
+        }
+        Ok(())
     }
 
     fn initialize(&self) -> Result<(), RecoveryError> {
@@ -495,6 +596,69 @@ fn write_new_file(path: &Path, contents: &[u8]) -> Result<(), RecoveryError> {
         .map_err(|source| RecoveryError::Io(path.to_owned(), source))
 }
 
+fn write_json_new<T: Serialize>(path: &Path, value: &T) -> Result<(), RecoveryError> {
+    let bytes = serde_json::to_vec_pretty(value)
+        .map_err(|error| RecoveryError::Serialize(error.to_string()))?;
+    let mut contents = bytes;
+    contents.push(b'\n');
+    write_new_file(path, &contents)
+}
+
+fn read_regular_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, RecoveryError> {
+    let metadata =
+        fs::symlink_metadata(path).map_err(|source| RecoveryError::Io(path.to_owned(), source))?;
+    if !metadata.file_type().is_file() {
+        return Err(RecoveryError::NotOwned(path.to_owned()));
+    }
+    let bytes = fs::read(path).map_err(|source| RecoveryError::Io(path.to_owned(), source))?;
+    serde_json::from_slice(&bytes)
+        .map_err(|error| RecoveryError::Damaged(path.to_owned(), error.to_string()))
+}
+
+fn ensure_directory_chain(root: &Path, target: &Path) -> Result<(), RecoveryError> {
+    let relative = target
+        .strip_prefix(root)
+        .map_err(|_| RecoveryError::UnsafePath(target.to_owned()))?;
+    let mut current = root.to_owned();
+    for component in relative.components() {
+        if !matches!(component, Component::Normal(_)) {
+            return Err(RecoveryError::UnsafePath(target.to_owned()));
+        }
+        current.push(component);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_dir() => {}
+            Ok(_) => return Err(RecoveryError::NotOwned(current)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                fs::create_dir(&current)
+                    .map_err(|source| RecoveryError::Io(current.clone(), source))?;
+            }
+            Err(source) => return Err(RecoveryError::Io(current, source)),
+        }
+    }
+    Ok(())
+}
+
+fn strict_tree_size(path: &Path) -> Result<u64, RecoveryError> {
+    require_directory(path)?;
+    let mut total = 0_u64;
+    let entries =
+        fs::read_dir(path).map_err(|source| RecoveryError::Io(path.to_owned(), source))?;
+    for entry in entries {
+        let entry = entry.map_err(|source| RecoveryError::Io(path.to_owned(), source))?;
+        let child = entry.path();
+        let metadata = fs::symlink_metadata(&child)
+            .map_err(|source| RecoveryError::Io(child.clone(), source))?;
+        if metadata.file_type().is_dir() {
+            total = total.saturating_add(strict_tree_size(&child)?);
+        } else if metadata.file_type().is_file() {
+            total = total.saturating_add(metadata.len());
+        } else {
+            return Err(RecoveryError::UnsafePath(child));
+        }
+    }
+    Ok(total)
+}
+
 fn require_existing_directory(path: &Path) -> Result<(), RecoveryError> {
     require_directory(path).map_err(|error| match error {
         RecoveryError::Io(_, source) if source.kind() == std::io::ErrorKind::NotFound => {
@@ -556,6 +720,7 @@ pub enum RecoveryError {
     NotOwned(PathBuf),
     UnsafePath(PathBuf),
     IdentityMismatch(PathBuf),
+    IdentityCollision(PathBuf),
     InvalidMetadata(String),
     Damaged(PathBuf, String),
     Io(PathBuf, std::io::Error),
@@ -581,6 +746,11 @@ impl fmt::Display for RecoveryError {
             Self::IdentityMismatch(path) => write!(
                 formatter,
                 "active receipt does not match recovery lineage at {}",
+                path.display()
+            ),
+            Self::IdentityCollision(path) => write!(
+                formatter,
+                "recovery identity already exists at {}",
                 path.display()
             ),
             Self::InvalidMetadata(cause) => write!(formatter, "invalid recovery metadata: {cause}"),
@@ -699,6 +869,61 @@ mod tests {
 
         assert_eq!(store.load_index().unwrap(), index);
         assert_eq!(store.verify_active_lineage(&lineage).unwrap(), active);
+    }
+
+    #[test]
+    fn prepared_retained_payload_is_marked_measured_and_safely_discarded() {
+        let temporary = TempDir::new().unwrap();
+        let library = temporary.path().join("library");
+        fs::create_dir(&library).unwrap();
+        let store = RecoveryStore::create_or_open(&library).unwrap();
+        let lock = store.lock().unwrap();
+        let lineage_id = new_lineage_id();
+        let version_id = new_version_id();
+        let payload = store
+            .prepare_retained_payload(&lock, &lineage_id, &version_id)
+            .unwrap();
+        fs::create_dir(&payload).unwrap();
+        fs::write(payload.join("track.flac"), b"audio").unwrap();
+
+        assert_eq!(store.retained_size(&lineage_id, &version_id).unwrap(), 5);
+
+        fs::remove_dir_all(&payload).unwrap();
+        store
+            .discard_prepared_payload(&lock, &lineage_id, &version_id)
+            .unwrap();
+        assert!(!payload.parent().unwrap().exists());
+    }
+
+    #[test]
+    fn retained_payload_measurement_rejects_symlinks_or_special_objects() {
+        let temporary = TempDir::new().unwrap();
+        let library = temporary.path().join("library");
+        fs::create_dir(&library).unwrap();
+        let store = RecoveryStore::create_or_open(&library).unwrap();
+        let lock = store.lock().unwrap();
+        let lineage_id = new_lineage_id();
+        let version_id = new_version_id();
+        let payload = store
+            .prepare_retained_payload(&lock, &lineage_id, &version_id)
+            .unwrap();
+        fs::create_dir(&payload).unwrap();
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("outside", payload.join("unsafe")).unwrap();
+        #[cfg(windows)]
+        fs::write(payload.join("ordinary"), b"safe fallback").unwrap();
+
+        #[cfg(unix)]
+        assert!(matches!(
+            store.retained_size(&lineage_id, &version_id),
+            Err(RecoveryError::UnsafePath(_))
+        ));
+        #[cfg(windows)]
+        assert_eq!(
+            store.retained_size(&lineage_id, &version_id).unwrap(),
+            b"safe fallback".len() as u64
+        );
     }
 
     #[test]
