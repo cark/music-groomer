@@ -35,6 +35,8 @@ milestone. Then load only the pages relevant to the task:
   and [technical boundaries](decisions/technical-boundaries.md).
 - Current post-review polish:
   [Milestone 3a real-world polish](decisions/milestone-3a-real-world-polish.md).
+- Current Milestone 4 final review:
+  [Milestone 4 review corrections](decisions/milestone-4-review.md).
 - Standalone tracks or deferred features:
   [standalone tracks and scope](decisions/standalone-tracks-and-scope.md).
 - Milestone 3b fingerprinting and AcoustID behavior:

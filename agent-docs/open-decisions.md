@@ -14,6 +14,7 @@ Detailed decisions are grouped into small pages:
 - [Technical boundaries](decisions/technical-boundaries.md)
 - [Milestone 3a review corrections](decisions/milestone-3a-review.md)
 - [Milestone 3a real-world polish](decisions/milestone-3a-real-world-polish.md)
+- [Milestone 4 final review corrections](decisions/milestone-4-review.md)
 
 Implementation must not begin merely because this index has no open entry. The
 user must explicitly confirm overall alignment, as required by `AGENTS.md`.
@@ -24,6 +25,6 @@ decision page.
 
 ## Open questions
 
-No question is currently open. Milestone 3b is accepted; milestone 4 alignment
-has not begun and still requires the usual one-question-at-a-time discussion
-before implementation.
+Milestone 4's final review correction set is being aligned one finding at a
+time. Accepted items are recorded on the linked review page; implementation
+still requires explicit authorization after the set is complete.
