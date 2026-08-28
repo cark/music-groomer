@@ -106,6 +106,19 @@ When no source cover exists, use the archive's 1200-pixel front derivative. Do
 not invent an image-quality score or download backs, booklets, or scan
 collections.
 
+The guided artwork chooser is a persistent comparison list, not a compressed
+menu prompt. List every recognized root-level source candidate plus the Cover
+Art Archive front, mark the actual selection, and show provenance, source name
+where applicable, native format, dimensions, and encoded byte size. Allow any
+listed choice to be opened in the system image viewer without selecting it;
+after viewing, return to the unchanged list. Selecting a number moves the
+visible marker and redisplays the list until the user goes back.
+
+Keep the uniquely preferred source front selected by default; larger dimensions
+alone do not justify silent replacement. Do not add a misleading `No artwork`
+choice while preserved root-level source images may still be recognized by
+Navidrome. Scans and booklet pages remain excluded from canonical choices.
+
 If a selected replacement conflicts with root-level source cover files, put the
 canonical image at `cover.<native extension>` and preserve displaced originals
 byte-for-byte under `original-artwork/`. Show the relocation in preview.

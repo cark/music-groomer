@@ -62,13 +62,27 @@ fn unmatched_loose_track_does_not_invent_release_tags_or_year() {
 fn selected_source_artwork_gets_a_canonical_native_name() {
     let mut source = loose_source();
     source.artwork.push(ArtworkCandidate {
+        relative_path: PathBuf::from("cover.jpg"),
+        format: ArtworkFormat::Jpeg,
+        dimensions: (500, 500),
+        name_priority: 0,
+    });
+    source.ancillary.push(AncillaryFile {
+        relative_path: PathBuf::from("cover.jpg"),
+        bytes: 100,
+    });
+    source.ancillary.push(AncillaryFile {
+        relative_path: PathBuf::from("folder.png"),
+        bytes: 200,
+    });
+    source.artwork.push(ArtworkCandidate {
         relative_path: PathBuf::from("folder.png"),
         format: ArtworkFormat::Png,
         dimensions: (1000, 1000),
         name_priority: 2,
     });
     source.selected_artwork = Some(0);
-    let matched = result(MetadataSelection::ExistingTags, ArtworkSelection::Source);
+    let matched = result(MetadataSelection::ExistingTags, ArtworkSelection::Source(1));
 
     let plan = build_plan(&source, &matched, Path::new("/library")).unwrap();
 
@@ -77,6 +91,15 @@ fn selected_source_artwork_gets_a_canonical_native_name() {
         plan.artwork.origin,
         ArtworkOrigin::SourceSidecar { ref source_name } if source_name == "folder.png"
     ));
+    assert!(plan.ancillary.iter().any(|file| {
+        file.source_relative == Path::new("cover.jpg")
+            && file.destination_relative == Path::new("original-artwork/cover.jpg")
+    }));
+    assert!(
+        plan.ancillary
+            .iter()
+            .all(|file| file.source_relative != Path::new("folder.png"))
+    );
 }
 
 #[test]

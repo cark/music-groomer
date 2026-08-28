@@ -1,7 +1,8 @@
+mod chooser;
+
 use std::io;
 use std::time::SystemTime;
 
-use crate::artwork_viewer::ArtworkViewer;
 use crate::matching_ui::MetadataSelection;
 use crate::provider::{ArtworkLookup, ArtworkProvider, ArtworkResolver, ProviderArtwork};
 use crate::source::SourceInspection;
@@ -10,9 +11,13 @@ use crate::terminal::{Interaction, UiLine};
 use super::warnings::WarningState;
 use super::{InteractionProgress, common_release_group_id, show_warnings};
 
+pub(super) use chooser::choose_artwork;
+#[cfg(test)]
+pub(super) use chooser::view_artwork;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ArtworkSelection {
-    Source,
+    Source(usize),
     CoverArtArchive(ProviderArtwork),
     None,
 }
@@ -88,8 +93,8 @@ pub(super) fn initial_artwork(
     metadata: &MetadataSelection,
     archive: Option<&ProviderArtwork>,
 ) -> ArtworkSelection {
-    if source.selected_artwork.is_some() {
-        ArtworkSelection::Source
+    if let Some(index) = source.selected_artwork {
+        ArtworkSelection::Source(index)
     } else if let Some(artwork) = archive
         && matches!(metadata, MetadataSelection::Provider(_))
     {
@@ -101,101 +106,15 @@ pub(super) fn initial_artwork(
 
 pub(super) fn artwork_label(source: &SourceInspection, artwork: &ArtworkSelection) -> String {
     match artwork {
-        ArtworkSelection::Source => source
-            .selected_artwork
-            .and_then(|index| source.artwork.get(index))
-            .map_or_else(
-                || "selected source cover".to_owned(),
-                |artwork| format!("source {}", artwork.relative_path.display()),
-            ),
+        ArtworkSelection::Source(index) => source.artwork.get(*index).map_or_else(
+            || "selected source cover".to_owned(),
+            |artwork| format!("source {}", artwork.relative_path.display()),
+        ),
         ArtworkSelection::CoverArtArchive(artwork) => format!(
             "Cover Art Archive front ({} {}x{})",
             artwork.format, artwork.dimensions.0, artwork.dimensions.1
         ),
         ArtworkSelection::None => "none available".into(),
-    }
-}
-
-pub(super) fn choose_artwork<V: ArtworkViewer>(
-    interaction: &mut impl Interaction,
-    source: &SourceInspection,
-    archive: Option<&ProviderArtwork>,
-    current: ArtworkSelection,
-    viewer: &mut V,
-) -> io::Result<ArtworkSelection> {
-    match (source.selected_artwork.is_some(), archive) {
-        (true, Some(archive)) => loop {
-            let answer = interaction.prompt(UiLine::menu_prompt(
-                "Artwork: [1] Keep source cover (default)  [2] Use Cover Art Archive front  [v] View current  [b] Back: ",
-            ))?;
-            match answer.to_ascii_lowercase().as_str() {
-                "1" => return Ok(ArtworkSelection::Source),
-                "2" => return Ok(ArtworkSelection::CoverArtArchive(archive.clone())),
-                "v" | "view" => view_artwork(interaction, source, &current, viewer)?,
-                "" | "b" | "back" => return Ok(current),
-                _ => interaction.error("Please choose Source, Cover Art Archive, or Back.")?,
-            }
-        },
-        (true, None) => {
-            view_artwork(interaction, source, &current, viewer)?;
-            Ok(current)
-        }
-        (false, Some(archive)) => loop {
-            let answer = interaction.prompt(UiLine::menu_prompt(
-                "Artwork: [2] Use Cover Art Archive front  [v] View archive front  [b] Back: ",
-            ))?;
-            match answer.to_ascii_lowercase().as_str() {
-                "2" => return Ok(ArtworkSelection::CoverArtArchive(archive.clone())),
-                "v" | "view" => view_artwork(
-                    interaction,
-                    source,
-                    &ArtworkSelection::CoverArtArchive(archive.clone()),
-                    viewer,
-                )?,
-                "" | "b" | "back" => return Ok(current),
-                _ => interaction.error("Please choose Use, View, or Back.")?,
-            }
-        },
-        (false, None) => {
-            interaction.warning("No album artwork is available.")?;
-            Ok(current)
-        }
-    }
-}
-
-pub(super) fn view_artwork<V: ArtworkViewer>(
-    interaction: &mut impl Interaction,
-    source: &SourceInspection,
-    artwork: &ArtworkSelection,
-    viewer: &mut V,
-) -> io::Result<()> {
-    let result = match artwork {
-        ArtworkSelection::Source => source
-            .selected_artwork
-            .and_then(|index| source.artwork.get(index))
-            .ok_or_else(|| "the selected source cover is unavailable".to_owned())
-            .and_then(|artwork| {
-                let root = if source.source.is_dir() {
-                    source.source.clone()
-                } else {
-                    source
-                        .source
-                        .parent()
-                        .unwrap_or_else(|| std::path::Path::new("."))
-                        .to_owned()
-                };
-                viewer
-                    .view_path(&root.join(&artwork.relative_path))
-                    .map_err(|error| error.to_string())
-            }),
-        ArtworkSelection::CoverArtArchive(artwork) => viewer
-            .view_download(artwork)
-            .map_err(|error| error.to_string()),
-        ArtworkSelection::None => Err("no artwork is available to view".into()),
-    };
-    match result {
-        Ok(()) => interaction.success("Opened the selected artwork in the system image viewer."),
-        Err(error) => interaction.error(format!("Could not view artwork: {error}")),
     }
 }
 

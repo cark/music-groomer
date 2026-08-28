@@ -10,10 +10,8 @@ pub(super) fn artwork_plan(
     matched: &GuidedMatchResult,
 ) -> (ArtworkChoice, Option<Vec<u8>>) {
     match &matched.artwork {
-        ArtworkSelection::Source => {
-            let candidate = source
-                .selected_artwork
-                .and_then(|index| source.artwork.get(index));
+        ArtworkSelection::Source(index) => {
+            let candidate = source.artwork.get(*index);
             let choice = candidate.map_or_else(no_artwork, |candidate| ArtworkChoice {
                 origin: ArtworkOrigin::SourceSidecar {
                     source_name: candidate.relative_path.display().to_string(),
@@ -61,7 +59,7 @@ pub(super) fn ancillary_plan(
                 {
                     return None;
                 }
-                ArtworkOrigin::CoverArtArchive { .. }
+                ArtworkOrigin::SourceSidecar { .. } | ArtworkOrigin::CoverArtArchive { .. }
                     if source
                         .artwork
                         .iter()

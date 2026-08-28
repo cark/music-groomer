@@ -17,7 +17,10 @@ use crate::provider::{
     AcoustIdProvider, AcoustIdResponse, AcoustIdResult, ProviderError, ProviderSearch,
     ProviderSearchResult,
 };
-use crate::source::{AudioFormat, AudioProperties, AudioTags, InspectedAudio};
+use crate::source::{
+    AncillaryFile, ArtworkCandidate, ArtworkFormat, AudioFormat, AudioProperties, AudioTags,
+    InspectedAudio,
+};
 
 struct ScriptedInteraction {
     answers: VecDeque<String>,
@@ -179,10 +182,12 @@ impl ArtworkViewer for NoopViewer {
 #[derive(Default)]
 struct RecordingViewer {
     downloads: usize,
+    paths: Vec<PathBuf>,
 }
 
 impl ArtworkViewer for RecordingViewer {
-    fn view_path(&mut self, _path: &std::path::Path) -> Result<(), ViewerError> {
+    fn view_path(&mut self, path: &std::path::Path) -> Result<(), ViewerError> {
+        self.paths.push(path.to_owned());
         Ok(())
     }
 
@@ -303,11 +308,84 @@ fn artwork_view_action_uses_the_viewer_boundary() {
     .unwrap();
 
     assert_eq!(viewer.downloads, 1);
+    assert!(interaction.transcript.contains("Opened the artwork choice"));
+}
+
+#[test]
+fn artwork_chooser_lists_selects_and_views_every_available_choice() {
+    let mut source = source();
+    source.artwork = vec![
+        ArtworkCandidate {
+            relative_path: PathBuf::from("cover.jpg"),
+            format: ArtworkFormat::Jpeg,
+            dimensions: (400, 400),
+            name_priority: 0,
+        },
+        ArtworkCandidate {
+            relative_path: PathBuf::from("folder.png"),
+            format: ArtworkFormat::Png,
+            dimensions: (800, 600),
+            name_priority: 1,
+        },
+    ];
+    source.selected_artwork = Some(0);
+    source.ancillary = vec![
+        AncillaryFile {
+            relative_path: PathBuf::from("cover.jpg"),
+            bytes: 4096,
+        },
+        AncillaryFile {
+            relative_path: PathBuf::from("folder.png"),
+            bytes: 8192,
+        },
+    ];
+    let archive = crate::provider::ProviderArtwork {
+        bytes: vec![0; 2048],
+        format: ArtworkFormat::Jpeg,
+        dimensions: (1200, 1000),
+    };
+    let mut interaction = ScriptedInteraction {
+        answers: VecDeque::from([
+            "v".into(),
+            "2".into(),
+            "v".into(),
+            "3".into(),
+            "2".into(),
+            "b".into(),
+        ]),
+        transcript: String::new(),
+    };
+    let mut viewer = RecordingViewer::default();
+
+    let selected = artwork::choose_artwork(
+        &mut interaction,
+        &source,
+        Some(&archive),
+        ArtworkSelection::Source(0),
+        &mut viewer,
+    )
+    .unwrap();
+
+    assert_eq!(selected, ArtworkSelection::Source(1));
+    assert_eq!(viewer.paths, [PathBuf::from("incoming/album/folder.png")]);
+    assert_eq!(viewer.downloads, 1);
     assert!(
         interaction
             .transcript
-            .contains("Opened the selected artwork")
+            .contains("✓ 1. Source — cover.jpg — JPEG, 400×400, 4.0 KiB")
     );
+    assert!(
+        interaction
+            .transcript
+            .contains("2. Source — folder.png — PNG, 800×600, 8.0 KiB")
+    );
+    assert!(
+        interaction
+            .transcript
+            .contains("3. Cover Art Archive — front — JPEG, 1200×1000, 2.0 KiB")
+    );
+    assert!(interaction.transcript.contains("✓ 2. Source — folder.png"));
+    assert!(interaction.transcript.contains("View which artwork? [1-3]"));
 }
 
 #[test]
