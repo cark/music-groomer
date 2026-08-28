@@ -339,7 +339,7 @@ fn ancillary_files_and_empty_directories_are_preserved() {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[test]
 fn non_utf8_source_artwork_survives_preview_and_apply() {
     use std::ffi::OsString;

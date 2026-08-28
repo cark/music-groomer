@@ -75,6 +75,7 @@ fn unchanged_destination_returns_to_preview_without_a_save_question() {
     )
     .unwrap()
     .unwrap();
+    let expected_prompt = format!("Destination root [{}]: ", plan.destination_root.display());
 
     run_with_plan(
         &mut interaction,
@@ -86,7 +87,6 @@ fn unchanged_destination_returns_to_preview_without_a_save_question() {
     )
     .unwrap();
 
-    let expected_prompt = format!("Destination root [{}]: ", library.display());
     assert_eq!(interaction.transcript.matches(&expected_prompt).count(), 2);
     assert!(!interaction.transcript.contains("Destination is valid."));
     assert!(!interaction.transcript.contains("Use and save as default"));
