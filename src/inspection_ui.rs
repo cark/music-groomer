@@ -8,42 +8,37 @@ mod tests;
 use std::io;
 
 use crate::source::SourceInspection;
-use crate::terminal::{Interaction, SemanticRole, UiLine};
+use crate::terminal::{Action, ActionMenu, Interaction, MenuId};
 
 pub fn run(interaction: &mut impl Interaction, inspection: &SourceInspection) -> io::Result<()> {
-    run_menu(interaction, inspection, "[d] Done", false)
+    run_menu(interaction, inspection, false)
 }
 
 pub fn run_before_matching(
     interaction: &mut impl Interaction,
     inspection: &SourceInspection,
 ) -> io::Result<()> {
-    run_menu(interaction, inspection, "[c] Continue to metadata", true)
+    run_menu(interaction, inspection, true)
 }
 
 fn run_menu(
     interaction: &mut impl Interaction,
     inspection: &SourceInspection,
-    completion: &str,
     continues_to_metadata: bool,
 ) -> io::Result<()> {
     summary::show(interaction, inspection, continues_to_metadata)?;
+    let menu = ActionMenu::for_id(if continues_to_metadata {
+        MenuId::InspectionContinue
+    } else {
+        MenuId::InspectionDone
+    });
     loop {
-        let answer = interaction
-            .prompt(
-                UiLine::new()
-                    .with(SemanticRole::Prompt, "Choose: ")
-                    .with(SemanticRole::MenuKey, "[r]")
-                    .with(SemanticRole::Prompt, " Review files and tags  ")
-                    .with(SemanticRole::MenuKey, &completion[..3])
-                    .with(SemanticRole::Prompt, &completion[3..])
-                    .with(SemanticRole::Prompt, ": "),
-            )?
-            .to_ascii_lowercase();
-        match answer.as_str() {
-            "r" | "review" => details::show(interaction, inspection)?,
-            "" | "c" | "continue" | "d" | "done" | "q" | "quit" => return Ok(()),
-            _ => interaction.error("Please choose Review files and tags or Done.")?,
+        let answer = interaction.prompt(menu.prompt("Choose: "))?;
+        match menu.action(&answer) {
+            Some(Action::Review) => details::show(interaction, inspection)?,
+            Some(Action::Continue) | Some(Action::Done) => return Ok(()),
+            None if answer.is_empty() => return Ok(()),
+            _ => interaction.error("Please choose one of the displayed actions.")?,
         }
     }
 }

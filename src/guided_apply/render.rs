@@ -126,18 +126,3 @@ pub fn details(interaction: &mut impl Interaction, plan: &GroomingPlan) -> io::R
     }
     interaction.blank()
 }
-
-pub fn action_prompt() -> UiLine {
-    UiLine::new()
-        .with(SemanticRole::Prompt, "Choose: ")
-        .with(SemanticRole::MenuKey, "[a]")
-        .with(SemanticRole::Prompt, " Apply  ")
-        .with(SemanticRole::MenuKey, "[r]")
-        .with(SemanticRole::Prompt, " Review changes  ")
-        .with(SemanticRole::MenuKey, "[w]")
-        .with(SemanticRole::Prompt, " Artwork  ")
-        .with(SemanticRole::MenuKey, "[d]")
-        .with(SemanticRole::Prompt, " Destination  ")
-        .with(SemanticRole::MenuKey, "[c]")
-        .with(SemanticRole::Prompt, " Cancel: ")
-}

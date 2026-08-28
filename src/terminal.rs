@@ -1,8 +1,10 @@
+mod action;
 mod model;
 mod render;
 
 use std::io;
 
+pub use action::{Action, ActionMenu, MenuId};
 pub use model::{SemanticRole, UiLine, UiSpan};
 pub use render::StdioInteraction;
 

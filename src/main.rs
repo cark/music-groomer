@@ -148,7 +148,7 @@ fn clear_cache(cache: &ProviderCache) -> Result<(), String> {
         interaction.heading("Clear only music-groomer's provider cache?")?;
         interaction.path_field("Path", status.location.display().to_string())?;
         interaction.field("Current size", byte_count(status.total_bytes))?;
-        interaction.prompt(UiLine::menu_prompt("Continue? [y/N]: "))
+        interaction.prompt(UiLine::confirmation_prompt("Continue? [y/N]: "))
     })
     .map_err(|error| error.to_string())?;
     if !matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {

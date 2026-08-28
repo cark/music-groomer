@@ -12,7 +12,9 @@ use std::path::Path;
 use crate::destination::DestinationRoot;
 use crate::matching::{MatchDecision, MatchPolicy, RankedCandidate};
 use crate::plan::{ApplyReport, GroomingPlan, MatchSelection};
-pub use crate::terminal::{Interaction, SemanticRole, StdioInteraction, UiLine};
+pub use crate::terminal::{
+    Action, ActionMenu, Interaction, MenuId, SemanticRole, StdioInteraction, UiLine,
+};
 
 use fixtures::{DemoData, demo_data};
 use planning::{build_plan, coherent_standalone};
@@ -127,9 +129,10 @@ pub fn run(
 
     loop {
         show_summary(interaction, &plan)?;
-        let action = interaction.prompt(action_prompt())?.to_ascii_lowercase();
-        match action.as_str() {
-            "a" | "apply" => {
+        let menu = ActionMenu::for_id(MenuId::ExactPreview);
+        let answer = interaction.prompt(menu.prompt("Choose: "))?;
+        match menu.action(&answer) {
+            Some(Action::Apply) => {
                 if confirm_apply(interaction, &plan)? {
                     let report = ApplyReport {
                         destination: plan.destination.clone(),
@@ -152,33 +155,17 @@ pub fn run(
                 }
                 interaction.prose("Apply not confirmed; returning to the preview.")?;
             }
-            "r" | "review" => show_details(interaction, &plan)?,
-            "w" | "artwork" => plan = choose_artwork(interaction, plan)?,
-            "d" | "destination" => plan = choose_destination(interaction, plan)?,
-            "c" | "cancel" | "q" | "quit" => {
+            Some(Action::Review) => show_details(interaction, &plan)?,
+            Some(Action::Artwork) => plan = choose_artwork(interaction, plan)?,
+            Some(Action::Destination) => plan = choose_destination(interaction, plan)?,
+            Some(Action::Cancel) => {
                 interaction.prose("Cancelled. No files were written.")?;
                 return Ok(DemoOutcome::Cancelled);
             }
-            "" => {}
-            _ => interaction
-                .error("Please choose Apply, Review, Artwork, Destination, or Cancel.")?,
+            None if answer.is_empty() => {}
+            _ => interaction.error("Please choose one of the displayed actions.")?,
         }
     }
-}
-
-fn action_prompt() -> UiLine {
-    UiLine::new()
-        .with(SemanticRole::Prompt, "Choose: ")
-        .with(SemanticRole::MenuKey, "[a]")
-        .with(SemanticRole::Prompt, " Apply  ")
-        .with(SemanticRole::MenuKey, "[r]")
-        .with(SemanticRole::Prompt, " Review  ")
-        .with(SemanticRole::MenuKey, "[w]")
-        .with(SemanticRole::Prompt, " Artwork  ")
-        .with(SemanticRole::MenuKey, "[d]")
-        .with(SemanticRole::Prompt, " Destination  ")
-        .with(SemanticRole::MenuKey, "[c]")
-        .with(SemanticRole::Prompt, " Cancel: ")
 }
 
 fn choose_scenario(interaction: &mut impl Interaction) -> Result<Option<DemoScenario>, DemoError> {
@@ -193,16 +180,21 @@ fn choose_scenario(interaction: &mut impl Interaction) -> Result<Option<DemoScen
         "4.",
         "Loose track kept as a standalone track",
     ))?;
+    let menu = ActionMenu::for_id(MenuId::DemoScenario);
     loop {
-        match interaction
-            .prompt(UiLine::menu_prompt("Source [1-4, or c to cancel]: "))?
-            .as_str()
-        {
+        let prompt = menu.append_to(
+            UiLine::new()
+                .with(SemanticRole::Prompt, "Source ")
+                .with(SemanticRole::MenuKey, "[1-4]")
+                .with(SemanticRole::Prompt, "  "),
+        );
+        let answer = interaction.prompt(prompt)?;
+        match answer.as_str() {
             "1" => return Ok(Some(DemoScenario::ConfidentAlbum)),
             "2" => return Ok(Some(DemoScenario::AmbiguousCollaboration)),
             "3" => return Ok(Some(DemoScenario::MatchedSingle)),
             "4" => return Ok(Some(DemoScenario::StandaloneTrack)),
-            "c" | "C" | "q" | "Q" => return Ok(None),
+            _ if menu.action(&answer) == Some(Action::Cancel) => return Ok(None),
             _ => interaction.error("Please enter 1, 2, 3, 4, or c.")?,
         }
     }
@@ -311,24 +303,20 @@ fn choose_destination(
             proposed.destination.display().to_string(),
         )?;
 
+        let menu = ActionMenu::for_id(MenuId::DestinationChoice);
         loop {
-            match interaction
-                .prompt(UiLine::menu_prompt(
-                    "Choose: [o] Use once  [s] Use and save as default  [b] Go back: ",
-                ))?
-                .to_ascii_lowercase()
-                .as_str()
-            {
-                "o" | "once" => return Ok(proposed),
-                "s" | "save" => {
+            let answer = interaction.prompt(menu.prompt("Choose: "))?;
+            match menu.action(&answer) {
+                Some(Action::UseOnce) => return Ok(proposed),
+                Some(Action::SaveDefault) => {
                     interaction.success(format!(
                         "Demo only: would save {} as the default destination.",
                         root.path().display()
                     ))?;
                     return Ok(proposed);
                 }
-                "b" | "back" => return Ok(plan),
-                _ => interaction.error("Please choose Use once, Save as default, or Go back.")?,
+                Some(Action::Back) => return Ok(plan),
+                _ => interaction.error("Please choose one of the displayed actions.")?,
             }
         }
     }
@@ -340,7 +328,7 @@ fn confirm_apply(
 ) -> Result<bool, DemoError> {
     loop {
         let answer = interaction
-            .prompt(UiLine::menu_prompt(format!(
+            .prompt(UiLine::confirmation_prompt(format!(
                 "Apply this exact plan to {}? [Y/n]: ",
                 plan.destination.display()
             )))?

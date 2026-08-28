@@ -17,7 +17,7 @@ use crate::guided_matching::{GuidedMatchResult, revise_artwork};
 use crate::plan::GroomingPlan;
 use crate::planning::build_plan;
 use crate::source::SourceInspection;
-use crate::terminal::{Interaction, SemanticRole, UiLine, byte_count};
+use crate::terminal::{Action, ActionMenu, Interaction, MenuId, SemanticRole, UiLine, byte_count};
 
 #[derive(Debug)]
 pub enum GuidedApplyError {
@@ -62,14 +62,13 @@ pub fn run<V: ArtworkViewer>(
         return Ok(());
     };
     offer_abandoned_cleanup(interaction, &plan.destination_root)?;
+    let menu = ActionMenu::for_id(MenuId::ExactPreview);
 
     loop {
         render::summary(interaction, &plan)?;
-        let answer = interaction
-            .prompt(render::action_prompt())?
-            .to_ascii_lowercase();
-        match answer.as_str() {
-            "a" | "apply" => {
+        let answer = interaction.prompt(menu.prompt("Choose: "))?;
+        match menu.action(&answer) {
+            Some(Action::Apply) => {
                 if !confirm_apply(interaction, &plan)? {
                     interaction.prose("Apply not confirmed; returning to the preview.")?;
                     continue;
@@ -82,26 +81,25 @@ pub fn run<V: ArtworkViewer>(
                     }
                 }
             }
-            "r" | "review" => render::details(interaction, &plan)?,
-            "w" | "artwork" => {
+            Some(Action::Review) => render::details(interaction, &plan)?,
+            Some(Action::Artwork) => {
                 revise_artwork(interaction, source, &mut matched, viewer)?;
                 plan = build_plan(source, &matched, &plan.destination_root)
                     .map_err(|error| GuidedApplyError::Planning(error.to_string()))?;
             }
-            "d" | "destination" => {
+            Some(Action::Destination) => {
                 let previous_root = plan.destination_root.clone();
                 plan = destination::change(interaction, source, &matched, &mut config, plan)?;
                 if plan.destination_root != previous_root {
                     offer_abandoned_cleanup(interaction, &plan.destination_root)?;
                 }
             }
-            "c" | "cancel" | "q" | "quit" => {
+            Some(Action::Cancel) => {
                 interaction.prose("Cancelled. The source and destination were not changed.")?;
                 return Ok(());
             }
-            "" => {}
-            _ => interaction
-                .error("Please choose Apply, Review changes, Artwork, Destination, or Cancel.")?,
+            None if answer.is_empty() => {}
+            _ => interaction.error("Please choose one of the displayed actions.")?,
         }
     }
 }
@@ -185,7 +183,7 @@ fn show_failure(interaction: &mut impl Interaction, failure: &ApplyFailure) -> i
 fn confirm_apply(interaction: &mut impl Interaction, plan: &GroomingPlan) -> io::Result<bool> {
     loop {
         let answer = interaction
-            .prompt(UiLine::menu_prompt(format!(
+            .prompt(UiLine::confirmation_prompt(format!(
                 "Apply this exact plan to {}? [Y/n]: ",
                 plan.destination.display()
             )))?
@@ -233,7 +231,7 @@ fn offer_abandoned_cleanup(
 fn confirm_remove(interaction: &mut impl Interaction) -> io::Result<bool> {
     loop {
         let answer = interaction
-            .prompt(UiLine::menu_prompt(
+            .prompt(UiLine::confirmation_prompt(
                 "Remove this abandoned partial? [Y/n]: ",
             ))?
             .to_ascii_lowercase();

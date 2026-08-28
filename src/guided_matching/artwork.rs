@@ -130,7 +130,7 @@ pub(super) fn show_artwork_change(
 
 pub(super) fn confirm_refreshed_artwork(interaction: &mut impl Interaction) -> io::Result<bool> {
     loop {
-        let answer = interaction.prompt(UiLine::menu_prompt(
+        let answer = interaction.prompt(UiLine::confirmation_prompt(
             "Use the refreshed archive artwork? [y/N]: ",
         ))?;
         match answer.to_ascii_lowercase().as_str() {

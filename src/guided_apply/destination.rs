@@ -7,7 +7,7 @@ use crate::guided_matching::GuidedMatchResult;
 use crate::plan::GroomingPlan;
 use crate::planning::build_plan;
 use crate::source::SourceInspection;
-use crate::terminal::{Interaction, UiLine};
+use crate::terminal::{Action, ActionMenu, Interaction, MenuId, UiLine};
 
 pub fn initial_plan(
     interaction: &mut impl Interaction,
@@ -75,15 +75,12 @@ fn choose(
             "Resulting release",
             proposed.destination.display().to_string(),
         )?;
+        let menu = ActionMenu::for_id(MenuId::DestinationChoice);
         loop {
-            let answer = interaction
-                .prompt(UiLine::menu_prompt(
-                    "Choose: [o] Use once  [s] Use and save as default  [b] Go back: ",
-                ))?
-                .to_ascii_lowercase();
-            match answer.as_str() {
-                "o" | "once" => return Ok(Some(proposed)),
-                "s" | "save" => {
+            let answer = interaction.prompt(menu.prompt("Choose: "))?;
+            match menu.action(&answer) {
+                Some(Action::UseOnce) => return Ok(Some(proposed)),
+                Some(Action::SaveDefault) => {
                     config.destination = Some(proposed.destination_root.clone());
                     match config.save() {
                         Ok(()) => {
@@ -94,8 +91,8 @@ fn choose(
                             .error(format!("Could not save the default destination: {error}"))?,
                     }
                 }
-                "b" | "back" => break,
-                _ => interaction.error("Please choose Use once, Save, or Go back.")?,
+                Some(Action::Back) => break,
+                _ => interaction.error("Please choose one of the displayed actions.")?,
             }
         }
     }

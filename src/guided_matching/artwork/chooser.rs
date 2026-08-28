@@ -3,7 +3,7 @@ use std::io;
 use crate::artwork_viewer::ArtworkViewer;
 use crate::provider::ProviderArtwork;
 use crate::source::SourceInspection;
-use crate::terminal::{Interaction, SemanticRole, UiLine, byte_count};
+use crate::terminal::{Action, ActionMenu, Interaction, MenuId, SemanticRole, UiLine, byte_count};
 
 use super::ArtworkSelection;
 
@@ -20,21 +20,24 @@ pub(in crate::guided_matching) fn choose_artwork<V: ArtworkViewer>(
         return Ok(current);
     }
     let mut current = current;
+    let menu = ActionMenu::for_id(MenuId::ArtworkChoice);
     loop {
         show_choices(interaction, source, archive, &current)?;
-        let answer = interaction
-            .prompt(UiLine::menu_prompt(format!(
-                "Choose: [1-{choice_count}] Select  [v] View a choice  [b] Back: "
-            )))?
-            .to_ascii_lowercase();
-        match answer.as_str() {
-            "v" | "view" => {
+        let prompt = menu.append_to(
+            UiLine::new()
+                .with(SemanticRole::Prompt, "Choose: ")
+                .with(SemanticRole::MenuKey, format!("[1-{choice_count}]"))
+                .with(SemanticRole::Prompt, " Select  "),
+        );
+        let answer = interaction.prompt(prompt)?;
+        match menu.action(&answer) {
+            Some(Action::View) => {
                 if let Some(choice) = prompt_view_choice(interaction, choice_count)? {
                     view_choice(interaction, source, archive, choice, viewer)?;
                 }
             }
-            "b" | "back" => return Ok(current),
-            "" => {}
+            Some(Action::Back) => return Ok(current),
+            None if answer.is_empty() => {}
             _ => match parse_choice(&answer, choice_count) {
                 Some(choice) => current = selection_for(source, archive, choice),
                 None => interaction.error("Please select a listed number, View, or Back.")?,
@@ -127,11 +130,16 @@ fn prompt_view_choice(
     interaction: &mut impl Interaction,
     choice_count: usize,
 ) -> io::Result<Option<usize>> {
+    let menu = ActionMenu::for_id(MenuId::ArtworkView);
     loop {
-        let answer = interaction.prompt(UiLine::menu_prompt(format!(
-            "View which artwork? [1-{choice_count}]  [b] Back: "
-        )))?;
-        if matches!(answer.to_ascii_lowercase().as_str(), "" | "b" | "back") {
+        let prompt = menu.append_to(
+            UiLine::new()
+                .with(SemanticRole::Prompt, "View which artwork? ")
+                .with(SemanticRole::MenuKey, format!("[1-{choice_count}]"))
+                .with(SemanticRole::Prompt, "  "),
+        );
+        let answer = interaction.prompt(prompt)?;
+        if answer.is_empty() || menu.action(&answer) == Some(Action::Back) {
             return Ok(None);
         }
         if let Some(choice) = parse_choice(&answer, choice_count) {

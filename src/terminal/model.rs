@@ -63,7 +63,7 @@ impl UiLine {
         Self::single(SemanticRole::Prompt, text)
     }
 
-    pub fn menu_prompt(text: impl AsRef<str>) -> Self {
+    pub fn confirmation_prompt(text: impl AsRef<str>) -> Self {
         let text = text.as_ref();
         let mut line = Self::new();
         let mut rest = text;
@@ -135,10 +135,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn menu_prompt_marks_shortcuts_without_changing_readable_text() {
-        let prompt = UiLine::menu_prompt("Choose: [r] Review  [d] Done: ");
+    fn confirmation_prompt_marks_choices_without_changing_readable_text() {
+        let prompt = UiLine::confirmation_prompt("Continue? [y/N]: ");
 
-        assert_eq!(prompt.plain_text(), "Choose: [r] Review  [d] Done: ");
+        assert_eq!(prompt.plain_text(), "Continue? [y/N]: ");
         assert_eq!(
             prompt
                 .spans
@@ -146,7 +146,7 @@ mod tests {
                 .filter(|span| span.role == SemanticRole::MenuKey)
                 .map(|span| span.text.as_str())
                 .collect::<Vec<_>>(),
-            ["[r]", "[d]"]
+            ["[y/N]"]
         );
     }
 }

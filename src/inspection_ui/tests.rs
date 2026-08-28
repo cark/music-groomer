@@ -8,6 +8,7 @@ use tempfile::TempDir;
 
 use super::*;
 use crate::source::SourceInspector;
+use crate::terminal::UiLine;
 
 struct ScriptedInteraction {
     answers: VecDeque<String>,

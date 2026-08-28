@@ -13,7 +13,7 @@ use crate::provider::{
     ProviderProgress, WaitReason, equivalent_groomed_result, source_inspection,
 };
 use crate::source::SourceInspection;
-use crate::terminal::{Interaction, SemanticRole, UiLine};
+use crate::terminal::{Action, ActionMenu, Interaction, MenuId, SemanticRole, UiLine};
 
 mod artwork;
 mod identification;
@@ -230,18 +230,14 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
             &warnings,
             source_year_fallback,
         )?;
-        let refresh = if offline {
-            ""
+        let menu = ActionMenu::for_id(if offline {
+            MenuId::MetadataPreview
         } else {
-            "  [f] Refresh provider data and artwork"
-        };
-        let answer = interaction
-            .prompt(UiLine::menu_prompt(format!(
-                "Choose: [r] Review  [a] Artwork{refresh}  [d] Done: "
-            )))?
-            .to_ascii_lowercase();
-        match answer.as_str() {
-            "r" | "review" => {
+            MenuId::MetadataPreviewRefresh
+        });
+        let answer = interaction.prompt(menu.prompt("Choose: "))?;
+        match menu.action(&answer) {
+            Some(Action::Review) => {
                 let changed = review(
                     interaction,
                     source,
@@ -280,7 +276,7 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
                     )?;
                 }
             }
-            "a" | "artwork" => {
+            Some(Action::Artwork) => {
                 artwork = choose_artwork(
                     interaction,
                     source,
@@ -289,7 +285,7 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
                     viewer,
                 )?;
             }
-            "f" | "refresh" if !offline => {
+            Some(Action::Refresh) => {
                 interaction.section_heading("Refreshing provider data and artwork")?;
                 let refreshed = {
                     let mut progress = InteractionProgress(interaction);
@@ -385,9 +381,9 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
                     )?;
                 }
             }
-            "" => {}
-            "d" | "done" | "q" | "quit" => break,
-            _ => interaction.error("Please choose Review, Artwork, Refresh, or Done.")?,
+            Some(Action::Done) => break,
+            None if answer.is_empty() => {}
+            _ => interaction.error("Please choose a displayed preview action.")?,
         }
     }
 
@@ -511,35 +507,33 @@ fn review(
     identification: Option<&FingerprintEvidence>,
 ) -> io::Result<bool> {
     loop {
-        let identification_action = if identification.is_some() {
-            "  [i] Identification"
+        let menu = ActionMenu::for_id(if identification.is_some() {
+            MenuId::MetadataReviewIdentification
         } else {
-            ""
-        };
-        let answer = interaction.prompt(UiLine::menu_prompt(format!(
-            "Review: [s] Source files and tags  [m] Metadata{identification_action}  [w] Warnings  [b] Back: "
-        )))?;
-        match answer.to_ascii_lowercase().as_str() {
-            "s" | "source" => show_source_review(interaction, source)?,
-            "m" | "metadata" => {
+            MenuId::MetadataReview
+        });
+        let answer = interaction.prompt(menu.prompt("Review: "))?;
+        match menu.action(&answer) {
+            Some(Action::SourceDetails) => show_source_review(interaction, source)?,
+            Some(Action::Metadata) => {
                 let revised = revise(interaction, inspection, candidates, metadata)?;
                 let changed = selection_key(&revised) != selection_key(metadata);
                 *metadata = revised;
                 return Ok(changed);
             }
-            "w" | "warnings" => {
+            Some(Action::Warnings) => {
                 if warnings.is_empty() {
                     interaction.prose("No warnings.")?;
                 } else {
                     show_warnings(interaction, warnings)?;
                 }
             }
-            "i" | "identification" if identification.is_some() => {
+            Some(Action::Identification) => {
                 show_identification_details(interaction, identification.expect("checked above"))?;
             }
-            "" | "b" | "back" => return Ok(false),
-            _ => interaction
-                .error("Please choose Source, Metadata, Identification, Warnings, or Back.")?,
+            Some(Action::Back) => return Ok(false),
+            None if answer.is_empty() => return Ok(false),
+            _ => interaction.error("Please choose one of the displayed review actions.")?,
         }
     }
 }
@@ -635,7 +629,7 @@ fn same_result(left: &MetadataSelection, right: &MetadataSelection) -> bool {
 
 fn confirm_refreshed(interaction: &mut impl Interaction) -> io::Result<bool> {
     loop {
-        let answer = interaction.prompt(UiLine::menu_prompt(
+        let answer = interaction.prompt(UiLine::confirmation_prompt(
             "Use the materially changed refreshed metadata? [y/N]: ",
         ))?;
         match answer.to_ascii_lowercase().as_str() {

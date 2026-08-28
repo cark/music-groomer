@@ -3,7 +3,7 @@ use std::io;
 
 use crate::domain::{Inspection, SourceKind};
 use crate::matching::{MatchDecision, RankedCandidate};
-use crate::terminal::{Interaction, SemanticRole, UiLine};
+use crate::terminal::{Action, ActionMenu, Interaction, MenuId, SemanticRole, UiLine};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MetadataSelection {
@@ -46,19 +46,15 @@ fn choose_candidate(
     let mut shown = candidates.len().min(3);
     loop {
         show_candidates(interaction, &candidates, shown)?;
-        let mut actions = vec!["a number".to_owned()];
-        if shown < candidates.len() {
-            actions.push("[m] Show more".into());
-        }
-        actions.push("[t] Track-list details".into());
-        if coherent_existing_metadata(inspection).is_ok() {
-            actions.push("[e] Use existing tags (unverified)".into());
-        }
-        actions.push("[c] Cancel".into());
-        let answer = interaction.prompt(UiLine::menu_prompt(format!(
-            "Choose {}: ",
-            actions.join("  ")
-        )))?;
+        let existing = coherent_existing_metadata(inspection).is_ok();
+        let menu_id = match (shown < candidates.len(), existing) {
+            (false, false) => MenuId::CandidateChoice,
+            (false, true) => MenuId::CandidateChoiceExisting,
+            (true, false) => MenuId::CandidateChoiceMore,
+            (true, true) => MenuId::CandidateChoiceMoreExisting,
+        };
+        let menu = ActionMenu::for_id(menu_id);
+        let answer = interaction.prompt(menu.prompt("Choose a number  "))?;
         if let Ok(index) = answer.parse::<usize>()
             && (1..=shown).contains(&index)
         {
@@ -66,16 +62,16 @@ fn choose_candidate(
                 candidates[index - 1].clone(),
             )));
         }
-        match answer.to_ascii_lowercase().as_str() {
-            "m" | "more" if shown < candidates.len() => {
+        match menu.action(&answer) {
+            Some(Action::More) => {
                 shown = candidates.len();
                 interaction.blank()?;
             }
-            "t" | "tracks" | "details" => show_track_lists(interaction, &candidates[..shown])?,
-            "e" | "existing" if coherent_existing_metadata(inspection).is_ok() => {
+            Some(Action::TrackDetails) => show_track_lists(interaction, &candidates[..shown])?,
+            Some(Action::ExistingTags) => {
                 return Ok(MetadataSelection::ExistingTags);
             }
-            "c" | "cancel" | "q" | "quit" => return Ok(MetadataSelection::Cancelled),
+            Some(Action::Cancel) => return Ok(MetadataSelection::Cancelled),
             _ => interaction.error("Please choose one of the displayed actions.")?,
         }
     }
@@ -88,25 +84,30 @@ fn confirm_only_candidate(
 ) -> io::Result<MetadataSelection> {
     show_candidates(interaction, std::slice::from_ref(candidate), 1)?;
     loop {
-        let existing = if coherent_existing_metadata(inspection).is_ok() {
-            "  [e] Existing tags"
+        let menu = ActionMenu::for_id(if coherent_existing_metadata(inspection).is_ok() {
+            MenuId::SingleCandidateExisting
         } else {
-            ""
-        };
-        let answer = interaction.prompt(UiLine::menu_prompt(format!(
-            "Use this uncertain match? [y/N]  [t] Track-list details{existing}: "
-        )))?;
-        match answer.to_ascii_lowercase().as_str() {
-            "y" | "yes" => {
+            MenuId::SingleCandidate
+        });
+        let prompt = menu.append_to(UiLine::confirmation_prompt(
+            "Use this uncertain match? [y/N]  ",
+        ));
+        let answer = interaction.prompt(prompt)?;
+        match menu.action(&answer) {
+            None if matches!(answer.to_ascii_lowercase().as_str(), "y" | "yes") => {
                 return Ok(MetadataSelection::Provider(Box::new(candidate.clone())));
             }
-            "t" | "tracks" | "details" => {
+            Some(Action::TrackDetails) => {
                 show_track_lists(interaction, std::slice::from_ref(candidate))?;
             }
-            "e" | "existing" if coherent_existing_metadata(inspection).is_ok() => {
+            Some(Action::ExistingTags) => {
                 return Ok(MetadataSelection::ExistingTags);
             }
-            "" | "n" | "no" | "c" | "cancel" | "q" | "quit" => {
+            None if matches!(
+                answer.to_ascii_lowercase().as_str(),
+                "" | "n" | "no" | "c" | "cancel" | "q" | "quit"
+            ) =>
+            {
                 return Ok(MetadataSelection::Cancelled);
             }
             _ => interaction.error("Please answer Yes, No, Details, or Existing tags.")?,
@@ -148,14 +149,12 @@ pub fn revise(
         show_candidates(interaction, candidates, candidates.len())?;
     }
     loop {
-        let existing = if coherent_existing_metadata(inspection).is_ok() {
-            "  [e] Existing tags"
+        let menu = ActionMenu::for_id(if coherent_existing_metadata(inspection).is_ok() {
+            MenuId::MetadataRevisionExisting
         } else {
-            ""
-        };
-        let answer = interaction.prompt(UiLine::menu_prompt(format!(
-            "Choose a number to change, [t] Track-list details{existing}  [b] Back: "
-        )))?;
+            MenuId::MetadataRevision
+        });
+        let answer = interaction.prompt(menu.prompt("Choose a number to change  "))?;
         if let Ok(index) = answer.parse::<usize>()
             && (1..=candidates.len()).contains(&index)
         {
@@ -163,12 +162,13 @@ pub fn revise(
                 candidates[index - 1].clone(),
             )));
         }
-        match answer.to_ascii_lowercase().as_str() {
-            "t" | "tracks" | "details" => show_track_lists(interaction, candidates)?,
-            "e" | "existing" if coherent_existing_metadata(inspection).is_ok() => {
+        match menu.action(&answer) {
+            Some(Action::TrackDetails) => show_track_lists(interaction, candidates)?,
+            Some(Action::ExistingTags) => {
                 return Ok(MetadataSelection::ExistingTags);
             }
-            "" | "b" | "back" => return Ok(current.clone()),
+            Some(Action::Back) => return Ok(current.clone()),
+            None if answer.is_empty() => return Ok(current.clone()),
             _ => interaction.error("Please choose a displayed metadata action.")?,
         }
     }
@@ -234,7 +234,7 @@ fn choose_fallback(
             interaction.blank()?;
             interaction.warning("No defensible MusicBrainz match was found.")?;
             loop {
-                let answer = interaction.prompt(UiLine::menu_prompt(
+                let answer = interaction.prompt(UiLine::confirmation_prompt(
                     "Use the internally coherent existing tags as unverified metadata? [Y/n]: ",
                 ))?;
                 match answer.to_ascii_lowercase().as_str() {

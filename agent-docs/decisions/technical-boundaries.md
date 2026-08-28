@@ -88,6 +88,17 @@ validation, and error behavior. Keep Clap types out of the core workflow.
 maintenance subcommand whose default action is read-only status. Keep the
 milestone-only `demo` command available but hidden from ordinary help.
 
+Build every human multi-action prompt from the terminal action catalogue.
+Actions own ordered key preferences and stable word aliases; menus own ordered
+actions and contextual labels. Resolve keys deterministically with backtracking,
+giving earlier actions first preference while requiring a complete unique
+assignment. Rendering and parsing must use the same resolved menu. The
+single-source catalogue enumerates every reachable menu state, and tests verify
+all of them; keep independently optional actions to at most three per menu.
+Yes/no confirmations, numeric choices, paths, and future machine output remain
+outside this small abstraction, though mixed numeric/action prompts render their
+action portion through it.
+
 Use `tracing` spans and events as the library-side diagnostics boundary, with
 the executable owning the subscriber and diagnostic-file lifecycle. Do not
 send logs directly to stdout or stderr during the guided interface: all normal
