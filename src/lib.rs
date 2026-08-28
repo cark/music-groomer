@@ -3,7 +3,6 @@
 pub mod apply;
 pub mod artwork_viewer;
 pub mod config;
-pub mod demo;
 pub mod destination;
 pub mod domain;
 pub mod fingerprint;

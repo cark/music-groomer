@@ -147,7 +147,6 @@ impl ApplyEngine {
                     tracks_validated: validation.tracks,
                     artwork_validated: validation.artwork_files > 0,
                     source_unchanged: true,
-                    simulated: false,
                     warnings,
                     publication_copied: publication.route == PublicationRoute::DestinationCopy,
                 })

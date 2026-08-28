@@ -88,7 +88,6 @@ pub fn build_plan(
         ancillary,
         ancillary_directories,
         artwork,
-        artwork_alternatives: Vec::new(),
         warnings: Vec::new(),
         preserved_embedded_artwork: source
             .audio

@@ -123,7 +123,6 @@ pub struct GroomingPlan {
     pub ancillary: Vec<AncillaryPlan>,
     pub ancillary_directories: Vec<PathBuf>,
     pub artwork: ArtworkChoice,
-    pub artwork_alternatives: Vec<ArtworkChoice>,
     pub warnings: Vec<PlanWarning>,
     pub preserved_embedded_artwork: usize,
     pub archive_artwork_bytes: Option<Vec<u8>>,
@@ -142,16 +141,6 @@ impl GroomingPlan {
             .iter()
             .filter(|track| track.destination.file_name() != track.source_relative.file_name())
             .count()
-    }
-
-    pub fn with_artwork(mut self, artwork: ArtworkChoice) -> Self {
-        if self.artwork != artwork {
-            let previous = std::mem::replace(&mut self.artwork, artwork.clone());
-            self.artwork_alternatives
-                .retain(|alternative| alternative != &artwork);
-            self.artwork_alternatives.push(previous);
-        }
-        self
     }
 
     pub fn with_destination_root(mut self, destination_root: PathBuf) -> Result<Self, PlanError> {
@@ -206,7 +195,6 @@ pub struct ApplyReport {
     pub tracks_validated: usize,
     pub artwork_validated: bool,
     pub source_unchanged: bool,
-    pub simulated: bool,
     pub warnings: Vec<String>,
     pub publication_copied: bool,
 }
@@ -251,7 +239,6 @@ mod tests {
                 dimensions: None,
                 output_name: None,
             },
-            artwork_alternatives: Vec::new(),
             warnings: Vec::new(),
             preserved_embedded_artwork: 1,
             archive_artwork_bytes: None,

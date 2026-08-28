@@ -104,7 +104,6 @@ menu_catalogue!(
     DestinationChoice,
     ArtworkChoice,
     ArtworkView,
-    DemoScenario,
 );
 
 impl MenuId {
@@ -182,7 +181,6 @@ impl MenuId {
                 MenuItem::new(Action::Back, "Back"),
             ],
             Self::ArtworkView => vec![MenuItem::new(Action::Back, "Back")],
-            Self::DemoScenario => vec![MenuItem::new(Action::Cancel, "Cancel")],
         }
     }
 }

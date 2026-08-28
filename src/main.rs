@@ -7,7 +7,6 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser};
 use music_groomer::artwork_viewer::SystemArtworkViewer;
 use music_groomer::config::AppConfig;
-use music_groomer::demo::{self, DemoScenario};
 use music_groomer::fingerprint::FpcalcFingerprinter;
 use music_groomer::guided_matching;
 use music_groomer::inspection_ui;
@@ -54,12 +53,6 @@ fn run() -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     let cache_directory = arguments.cache_dir;
     match arguments.command {
-        Some(CliCommand::Demo { scenario, output }) => {
-            if cache_directory.is_some() {
-                return Err("--cache-dir does not apply to the simulated demo".to_owned());
-            }
-            run_demo(scenario.map(|value| value.name()), output)
-        }
         Some(CliCommand::Cache { action }) => run_cache(action, cache_directory),
         None => match arguments.source {
             Some(source) => run_inspection(
@@ -175,15 +168,6 @@ fn with_stdio_interaction<T, E>(
         StdioInteraction::new(stdin.lock(), stdout, styling)
     };
     action(&mut interaction)
-}
-
-fn run_demo(scenario: Option<&str>, output: Option<PathBuf>) -> Result<(), String> {
-    let scenario = scenario.map(|value| {
-        DemoScenario::parse(value).expect("Clap accepts only supported demo scenario names")
-    });
-    with_stdio_interaction(|interaction| demo::run(interaction, scenario, output.as_deref()))
-        .map(|_| ())
-        .map_err(|error| error.to_string())
 }
 
 fn run_inspection(

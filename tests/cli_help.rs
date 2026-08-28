@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 #[test]
-fn top_level_help_documents_the_primary_workflow_and_hides_the_demo() {
+fn top_level_help_documents_the_primary_workflow() {
     for help_argument in ["-h", "--help"] {
         let output = Command::new(binary()).arg(help_argument).output().unwrap();
 
@@ -15,7 +15,6 @@ fn top_level_help_documents_the_primary_workflow_and_hides_the_demo() {
         assert!(stdout.contains("--cache-dir <DIRECTORY>"));
         assert!(stdout.contains("--diagnostics"));
         assert!(stdout.contains("cache"));
-        assert!(!stdout.contains("demo"));
     }
 }
 

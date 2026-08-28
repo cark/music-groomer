@@ -92,6 +92,48 @@ fn unchanged_destination_returns_to_preview_without_a_save_question() {
     assert!(!interaction.transcript.contains("Use and save as default"));
 }
 
+#[test]
+fn blank_action_and_declined_apply_both_return_to_the_exact_preview() {
+    let temporary = TempDir::new().unwrap();
+    let (_, library, source, matched) = prepared_session(&temporary);
+    let mut config = AppConfig::default();
+    let mut interaction = Scripted::new(["", "a", "n", "c"]);
+    let plan = choose_initial_destination(
+        &mut interaction,
+        &source,
+        &matched,
+        &mut config,
+        Some(&library),
+    )
+    .unwrap()
+    .unwrap();
+    let destination = plan.destination.clone();
+
+    run_with_plan(
+        &mut interaction,
+        &source,
+        matched,
+        config,
+        plan,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    assert_eq!(
+        interaction
+            .transcript
+            .matches("Exact grooming preview")
+            .count(),
+        3
+    );
+    assert!(
+        interaction
+            .transcript
+            .contains("Apply not confirmed; returning to the preview")
+    );
+    assert!(!destination.exists());
+}
+
 fn prepared_session(
     temporary: &TempDir,
 ) -> (PathBuf, PathBuf, SourceInspection, GuidedMatchResult) {

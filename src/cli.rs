@@ -64,18 +64,6 @@ pub enum CliCommand {
         #[command(subcommand)]
         action: Option<CacheAction>,
     },
-
-    /// Run an internal simulated workflow
-    #[command(hide = true)]
-    Demo {
-        /// Simulated source and matching situation
-        #[arg(value_enum)]
-        scenario: Option<DemoScenarioArgument>,
-
-        /// Existing directory used as the simulated destination
-        #[arg(long, value_name = "DIRECTORY", value_hint = ValueHint::DirPath)]
-        output: Option<PathBuf>,
-    },
 }
 
 #[derive(Clone, Copy, Debug, Subcommand)]
@@ -85,23 +73,4 @@ pub enum CacheAction {
 
     /// Confirm and remove the selected music-groomer cache
     Clear,
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-pub enum DemoScenarioArgument {
-    Confident,
-    Ambiguous,
-    MatchedSingle,
-    Standalone,
-}
-
-impl DemoScenarioArgument {
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Confident => "confident",
-            Self::Ambiguous => "ambiguous",
-            Self::MatchedSingle => "matched-single",
-            Self::Standalone => "standalone",
-        }
-    }
 }
