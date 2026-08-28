@@ -17,6 +17,7 @@ pub mod plan;
 pub mod planning;
 pub mod provider;
 pub mod recovery;
+pub mod recovery_ui;
 pub mod replacement;
 pub mod source;
 pub mod terminal;

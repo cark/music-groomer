@@ -18,7 +18,8 @@ use crate::config::AppConfig;
 use crate::guided_matching::{GuidedMatchResult, revise_artwork};
 use crate::plan::GroomingPlan;
 use crate::planning::build_plan;
-use crate::recovery::retained_time_label;
+use crate::recovery::{retained_time_label, run_maintenance};
+use crate::recovery_ui::render_maintenance;
 use crate::replacement::{ReplacementContext, detect};
 use crate::source::SourceInspection;
 use crate::terminal::{Action, ActionMenu, Interaction, MenuId, SemanticRole, UiLine, byte_count};
@@ -29,6 +30,7 @@ pub enum GuidedApplyError {
     Planning(String),
     SourceChanged(ApplyFailure),
     Replacement(String),
+    Maintenance(String),
 }
 
 impl fmt::Display for GuidedApplyError {
@@ -41,6 +43,7 @@ impl fmt::Display for GuidedApplyError {
                 "the preview is no longer valid; inspect the source again ({error})"
             ),
             Self::Replacement(error) => write!(formatter, "replacement cannot proceed: {error}"),
+            Self::Maintenance(error) => write!(formatter, "recovery maintenance failed: {error}"),
         }
     }
 }
@@ -104,6 +107,7 @@ pub fn run_with_plan<V: ArtworkViewer>(
                     interaction.prose("Apply not confirmed; returning to the preview.")?;
                     continue;
                 }
+                maintain_before_apply(interaction, &plan.destination_root, &config)?;
                 match apply(interaction, source, &plan, replacement.as_ref(), &config)? {
                     ApplyOutcome::Applied => return Ok(()),
                     ApplyOutcome::Retry => {}
@@ -134,6 +138,24 @@ pub fn run_with_plan<V: ArtworkViewer>(
             _ => interaction.error("Please choose one of the displayed actions.")?,
         }
     }
+}
+
+fn maintain_before_apply(
+    interaction: &mut impl Interaction,
+    library_root: &Path,
+    config: &AppConfig,
+) -> Result<(), GuidedApplyError> {
+    let max_bytes = config
+        .recovery_max_bytes()
+        .map_err(|error| GuidedApplyError::Maintenance(error.to_string()))?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| GuidedApplyError::Maintenance(error.to_string()))?
+        .as_secs();
+    let report = run_maintenance(library_root, max_bytes, now)
+        .map_err(|error| GuidedApplyError::Maintenance(error.to_string()))?;
+    render_maintenance(interaction, &report, max_bytes, false, None)?;
+    Ok(())
 }
 
 enum ApplyOutcome {

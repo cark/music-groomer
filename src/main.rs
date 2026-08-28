@@ -14,13 +14,15 @@ use music_groomer::matching_ui::{MetadataSelection, coherent_existing_metadata};
 use music_groomer::provider::{
     AcoustId, CoverArtArchive, MusicBrainzProvider, ProviderCache, source_inspection,
 };
+use music_groomer::recovery::run_maintenance;
+use music_groomer::recovery_ui::render_maintenance;
 use music_groomer::source::SourceInspector;
 use music_groomer::terminal::{Interaction, StdioInteraction, UiLine, byte_count};
 
 mod cli;
 mod diagnostics;
 
-use cli::{CacheAction, Cli, CliCommand};
+use cli::{CacheAction, Cli, CliCommand, RecoveryAction};
 
 fn main() -> ExitCode {
     match run() {
@@ -54,6 +56,7 @@ fn run() -> Result<(), String> {
     let cache_directory = arguments.cache_dir;
     match arguments.command {
         Some(CliCommand::Cache { action }) => run_cache(action, cache_directory),
+        Some(CliCommand::Recovery { action }) => run_recovery(action),
         None => match arguments.source {
             Some(source) => run_inspection(
                 source,
@@ -73,6 +76,37 @@ fn run() -> Result<(), String> {
                 Ok(())
             }
         },
+    }
+}
+
+fn run_recovery(action: RecoveryAction) -> Result<(), String> {
+    match action {
+        RecoveryAction::Maintain => {
+            let config = AppConfig::load().map_err(|error| error.to_string())?;
+            let configured = config.destination.as_ref().ok_or_else(|| {
+                "no destination library is configured; choose and save one in a grooming session first"
+                    .to_owned()
+            })?;
+            let library = configured.canonicalize().map_err(|error| {
+                format!(
+                    "cannot use configured destination library {}: {error}",
+                    configured.display()
+                )
+            })?;
+            let max_bytes = config
+                .recovery_max_bytes()
+                .map_err(|error| error.to_string())?;
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|error| error.to_string())?
+                .as_secs();
+            let report = run_maintenance(&library, max_bytes, now)
+                .map_err(|error| format!("recovery maintenance failed: {error}"))?;
+            with_stdio_interaction(|interaction| {
+                render_maintenance(interaction, &report, max_bytes, true, Some(&library))
+            })
+            .map_err(|error| error.to_string())
+        }
     }
 }
 

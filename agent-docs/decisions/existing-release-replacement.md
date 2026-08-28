@@ -133,6 +133,13 @@ usage and the cap. If protected versions keep the store over its cap, report
 that cleanup was deferred and why. The configured automatic policy is the
 authorization; do not turn it back into per-run manual cleanup.
 
+Before eviction, verify the indexed UUID identity, owned marker, safe payload
+tree, and exact retained-container shape. Stage verified containers by rename
+before committing their removal from the index. Roll back handled failures
+before that commit. If the final recursive cleanup fails after the index commit,
+fail visibly and retain the owned staging path for manual filesystem cleanup;
+do not relist a possibly partial copy as a recoverable version.
+
 Expose the same deterministic maintenance pass as non-interactive
 `music-groomer recovery maintain`, suitable for later cron or systemd scheduling
 outside the core application. Also run it on every confirmed Apply, whether

@@ -13,6 +13,9 @@ use crate::matching::{MatchDecision, MatchPolicy};
 use crate::matching_ui::MetadataSelection;
 use crate::plan::MatchSelection;
 use crate::provider::source_inspection;
+use crate::recovery::{
+    RecoveryIndex, RecoveryStore, ReleaseLineage, RetainedVersion, new_lineage_id, new_version_id,
+};
 use crate::source::{SourceInspection, SourceInspector};
 
 #[test]
@@ -50,6 +53,142 @@ fn one_guided_session_can_confirm_apply_and_exit_after_success() {
     assert!(
         library
             .join("Artist/2000 - Single/01 - Track.flac")
+            .exists()
+    );
+}
+
+#[test]
+fn confirmed_apply_runs_visible_maintenance_before_apply_staging() {
+    let temporary = TempDir::new().unwrap();
+    let (_, library, source, matched) = prepared_session(&temporary);
+    let retained = prepare_eligible_recovery(&library);
+    let mut config = AppConfig {
+        recovery_max_mib: Some(1),
+        ..AppConfig::default()
+    };
+    let mut interaction = Scripted::new(["a", ""]);
+    let plan = choose_initial_destination(
+        &mut interaction,
+        &source,
+        &matched,
+        &mut config,
+        Some(&library),
+    )
+    .unwrap()
+    .unwrap();
+
+    run_with_plan(
+        &mut interaction,
+        &source,
+        matched,
+        config,
+        plan,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    assert!(
+        interaction
+            .transcript
+            .contains("Removed Artist — Eligible Album")
+    );
+    assert!(
+        interaction.transcript.find("Recovery maintenance").unwrap()
+            < interaction
+                .transcript
+                .find("Applying confirmed plan")
+                .unwrap()
+    );
+    let store = RecoveryStore::open_existing(&library).unwrap().unwrap();
+    assert!(
+        !store
+            .retained_payload_path(&retained.storage_path)
+            .unwrap()
+            .exists()
+    );
+}
+
+#[test]
+fn declined_apply_does_not_run_maintenance() {
+    let temporary = TempDir::new().unwrap();
+    let (_, library, source, matched) = prepared_session(&temporary);
+    let retained = prepare_eligible_recovery(&library);
+    let mut config = AppConfig {
+        recovery_max_mib: Some(1),
+        ..AppConfig::default()
+    };
+    let mut interaction = Scripted::new(["a", "n", "c"]);
+    let plan = choose_initial_destination(
+        &mut interaction,
+        &source,
+        &matched,
+        &mut config,
+        Some(&library),
+    )
+    .unwrap()
+    .unwrap();
+
+    run_with_plan(
+        &mut interaction,
+        &source,
+        matched,
+        config,
+        plan,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    assert!(!interaction.transcript.contains("Recovery maintenance"));
+    let store = RecoveryStore::open_existing(&library).unwrap().unwrap();
+    assert!(
+        store
+            .retained_payload_path(&retained.storage_path)
+            .unwrap()
+            .exists()
+    );
+}
+
+#[test]
+fn confirmed_maintenance_remains_effective_when_later_apply_preflight_fails() {
+    let temporary = TempDir::new().unwrap();
+    let (source_path, library, source, matched) = prepared_session(&temporary);
+    let retained = prepare_eligible_recovery(&library);
+    let mut config = AppConfig {
+        recovery_max_mib: Some(1),
+        ..AppConfig::default()
+    };
+    let mut interaction = Scripted::new(["a", ""]);
+    let plan = choose_initial_destination(
+        &mut interaction,
+        &source,
+        &matched,
+        &mut config,
+        Some(&library),
+    )
+    .unwrap()
+    .unwrap();
+    let destination = plan.destination.clone();
+    fs::write(&source_path, b"changed after preview").unwrap();
+
+    let error = run_with_plan(
+        &mut interaction,
+        &source,
+        matched,
+        config,
+        plan,
+        &mut NoopViewer,
+    )
+    .unwrap_err();
+
+    assert!(matches!(error, GuidedApplyError::SourceChanged(_)));
+    assert!(interaction.transcript.contains("Recovery maintenance"));
+    assert!(interaction.transcript.contains("Apply failed"));
+    assert!(!destination.exists());
+    let store = RecoveryStore::open_existing(&library).unwrap().unwrap();
+    assert!(
+        !store
+            .retained_payload_path(&retained.storage_path)
+            .unwrap()
             .exists()
     );
 }
@@ -279,6 +418,47 @@ fn prepared_replacement_session(
     source.audio[0].tags.artist = Some("Artist".into());
     let matched = matched_result(&source);
     (active, library, source, matched)
+}
+
+fn prepare_eligible_recovery(library: &Path) -> RetainedVersion {
+    let store = RecoveryStore::create_or_open(library).unwrap();
+    let lock = store.lock().unwrap();
+    let lineage_id = new_lineage_id();
+    let version_id = new_version_id();
+    let prepared = store
+        .prepare_retained_payload(
+            &lock,
+            &lineage_id,
+            &version_id,
+            "Artist — Eligible Album",
+            1,
+            None,
+        )
+        .unwrap();
+    fs::create_dir(&prepared.payload).unwrap();
+    fs::write(
+        prepared.payload.join("track.flac"),
+        vec![b'a'; 1024 * 1024 + 1],
+    )
+    .unwrap();
+    let retained = RetainedVersion {
+        version_id,
+        historical_path: PathBuf::from("Artist/Eligible Album"),
+        display_label: "Artist — Eligible Album".into(),
+        retained_at: 1,
+        protected_until: 1,
+        size_bytes: 0,
+        storage_path: prepared.storage_path,
+    };
+    let mut index = RecoveryIndex::default();
+    index.lineages.push(ReleaseLineage {
+        lineage_id,
+        active_version_id: new_version_id(),
+        expected_active_path: PathBuf::from("Artist/Active Album"),
+        retained_versions: vec![retained.clone()],
+    });
+    store.save_index(&lock, &index).unwrap();
+    retained
 }
 
 fn matched_result(source: &SourceInspection) -> GuidedMatchResult {

@@ -21,6 +21,7 @@ const RECEIPT_SCHEMA: u8 = 1;
 const VERSION_MARKER: &str = ".music-groomer-version";
 const VERSION_MARKER_SCHEMA: u8 = 1;
 const PAYLOADS: &str = "payloads";
+const EVICTION_STAGING: &str = ".maintenance-evictions";
 const MAX_HUMAN_COMPONENT_CHARS: usize = 64;
 const MAX_HUMAN_COMPONENT_UNITS: usize = 96;
 
@@ -352,6 +353,7 @@ impl RecoveryStore {
             .parent()
             .expect("retained payload always has a container");
         verify_existing_directory_chain(&self.root, container)?;
+        verify_retained_container_shape(container)?;
         let marker_path = container.join(VERSION_MARKER);
         let marker: VersionMarker = read_regular_json(&marker_path)?;
         if marker.schema != VERSION_MARKER_SCHEMA
@@ -412,6 +414,139 @@ impl RecoveryStore {
             }
         }
         Ok(())
+    }
+
+    pub fn maintain(&self, max_bytes: u64, now: u64) -> Result<MaintenancePlan, RecoveryError> {
+        self.maintain_with(max_bytes, now, |path| fs::remove_dir_all(path))
+    }
+
+    fn maintain_with(
+        &self,
+        max_bytes: u64,
+        now: u64,
+        mut remove_tree: impl FnMut(&Path) -> std::io::Result<()>,
+    ) -> Result<MaintenancePlan, RecoveryError> {
+        let lock = self.lock()?;
+        let mut index = self.load_index()?;
+        let mut sizes_changed = false;
+        for lineage in &mut index.lineages {
+            for version in &mut lineage.retained_versions {
+                let actual = self.retained_size(
+                    &lineage.lineage_id,
+                    &version.version_id,
+                    &version.storage_path,
+                )?;
+                sizes_changed |= version.size_bytes != actual;
+                version.size_bytes = actual;
+            }
+        }
+        let plan = plan_maintenance(&index, max_bytes, now);
+        if plan.evictions.is_empty() {
+            if sizes_changed {
+                self.save_index(&lock, &index)?;
+            }
+            return Ok(plan);
+        }
+
+        let mut targets = Vec::new();
+        for eviction in &plan.evictions {
+            let version = index
+                .lineages
+                .iter()
+                .find(|lineage| lineage.lineage_id == eviction.lineage_id)
+                .and_then(|lineage| {
+                    lineage
+                        .retained_versions
+                        .iter()
+                        .find(|version| version.version_id == eviction.version_id)
+                })
+                .ok_or_else(|| {
+                    RecoveryError::InvalidMetadata(format!(
+                        "planned recovery eviction {} no longer exists",
+                        eviction.version_id
+                    ))
+                })?;
+            let payload = self.verify_retained_payload(
+                &eviction.lineage_id,
+                &eviction.version_id,
+                &version.storage_path,
+            )?;
+            let container = payload
+                .parent()
+                .expect("retained payload always has a container")
+                .to_owned();
+            targets.push(EvictionTarget {
+                lineage_id: eviction.lineage_id.clone(),
+                version_id: eviction.version_id.clone(),
+                original: container,
+            });
+        }
+
+        let staging_root = self.root.join(EVICTION_STAGING);
+        ensure_directory_chain(&self.root, &staging_root)?;
+        let mut staged = Vec::new();
+        for target in targets {
+            let staged_path = staging_root.join(&target.version_id);
+            match fs::symlink_metadata(&staged_path) {
+                Ok(_) => {
+                    return Err(rollback_staged_evictions(
+                        RecoveryError::IdentityCollision(staged_path),
+                        &staged,
+                        &staging_root,
+                    ));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(source) => {
+                    return Err(rollback_staged_evictions(
+                        RecoveryError::Io(staged_path, source),
+                        &staged,
+                        &staging_root,
+                    ));
+                }
+            }
+            if let Err(source) = fs::rename(&target.original, &staged_path) {
+                return Err(rollback_staged_evictions(
+                    RecoveryError::Io(target.original.clone(), source),
+                    &staged,
+                    &staging_root,
+                ));
+            }
+            staged.push(StagedEviction {
+                lineage_id: target.lineage_id,
+                version_id: target.version_id,
+                original: target.original,
+                staged: staged_path,
+            });
+        }
+
+        for lineage in &mut index.lineages {
+            let lineage_id = lineage.lineage_id.clone();
+            lineage.retained_versions.retain(|version| {
+                !plan.evictions.iter().any(|eviction| {
+                    eviction.lineage_id == lineage_id && eviction.version_id == version.version_id
+                })
+            });
+        }
+        if let Err(error) = self.save_index(&lock, &index) {
+            return Err(rollback_staged_evictions(error, &staged, &staging_root));
+        }
+
+        let mut cleanup_failures = Vec::new();
+        for entry in &staged {
+            if let Err(error) = verify_staged_eviction(&self.root, entry) {
+                cleanup_failures.push(error.to_string());
+            } else if let Err(error) = remove_tree(&entry.staged) {
+                cleanup_failures.push(format!("{}: {error}", entry.staged.display()));
+            } else {
+                remove_empty_retained_parents(&entry.original);
+            }
+        }
+        let _ = fs::remove_dir(&staging_root);
+        if cleanup_failures.is_empty() {
+            Ok(plan)
+        } else {
+            Err(RecoveryError::MaintenanceCleanup(cleanup_failures))
+        }
     }
 
     fn initialize(&self) -> Result<(), RecoveryError> {
@@ -475,6 +610,21 @@ pub struct Eviction {
     pub size_bytes: u64,
 }
 
+#[derive(Clone, Debug)]
+struct StagedEviction {
+    lineage_id: String,
+    version_id: String,
+    original: PathBuf,
+    staged: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+struct EvictionTarget {
+    lineage_id: String,
+    version_id: String,
+    original: PathBuf,
+}
+
 pub fn plan_maintenance(index: &RecoveryIndex, max_bytes: u64, now: u64) -> MaintenancePlan {
     let usage_before = index
         .lineages
@@ -528,6 +678,22 @@ pub fn plan_maintenance(index: &RecoveryIndex, max_bytes: u64, now: u64) -> Main
         earliest_protected_until: (usage_after > max_bytes)
             .then_some(earliest_protected_until)
             .flatten(),
+    }
+}
+
+pub fn run_maintenance(
+    library_root: &Path,
+    max_bytes: u64,
+    now: u64,
+) -> Result<MaintenancePlan, RecoveryError> {
+    match RecoveryStore::open_existing(library_root)? {
+        Some(store) => store.maintain(max_bytes, now),
+        None => Ok(MaintenancePlan {
+            usage_before: 0,
+            usage_after: 0,
+            evictions: Vec::new(),
+            earliest_protected_until: None,
+        }),
     }
 }
 
@@ -718,6 +884,88 @@ fn ensure_directory_chain(root: &Path, target: &Path) -> Result<(), RecoveryErro
         }
     }
     Ok(())
+}
+
+fn rollback_staged_evictions(
+    original: RecoveryError,
+    staged: &[StagedEviction],
+    staging_root: &Path,
+) -> RecoveryError {
+    let mut failures = Vec::new();
+    for entry in staged.iter().rev() {
+        if let Err(error) = fs::rename(&entry.staged, &entry.original) {
+            failures.push(format!(
+                "cannot return {} to {}: {error}",
+                entry.staged.display(),
+                entry.original.display()
+            ));
+        }
+    }
+    let _ = fs::remove_dir(staging_root);
+    if failures.is_empty() {
+        original
+    } else {
+        RecoveryError::MaintenanceRollback {
+            original: Box::new(original),
+            failures,
+        }
+    }
+}
+
+fn verify_staged_eviction(root: &Path, entry: &StagedEviction) -> Result<(), RecoveryError> {
+    verify_existing_directory_chain(root, &entry.staged)?;
+    verify_retained_container_shape(&entry.staged)?;
+    let marker_path = entry.staged.join(VERSION_MARKER);
+    let marker: VersionMarker = read_regular_json(&marker_path)?;
+    if marker.schema != VERSION_MARKER_SCHEMA
+        || marker.lineage_id != entry.lineage_id
+        || marker.version_id != entry.version_id
+    {
+        return Err(RecoveryError::IdentityMismatch(entry.staged.clone()));
+    }
+    strict_tree_size(&entry.staged.join("payload"))?;
+    Ok(())
+}
+
+fn verify_retained_container_shape(container: &Path) -> Result<(), RecoveryError> {
+    let mut marker = false;
+    let mut payload = false;
+    for entry in
+        fs::read_dir(container).map_err(|source| RecoveryError::Io(container.to_owned(), source))?
+    {
+        let entry = entry.map_err(|source| RecoveryError::Io(container.to_owned(), source))?;
+        let name = entry.file_name();
+        if name == VERSION_MARKER {
+            marker = true;
+        } else if name == "payload" {
+            payload = true;
+        } else {
+            return Err(RecoveryError::Damaged(
+                container.to_owned(),
+                format!(
+                    "unexpected entry in retained-version container: {}",
+                    name.to_string_lossy()
+                ),
+            ));
+        }
+    }
+    if marker && payload {
+        Ok(())
+    } else {
+        Err(RecoveryError::Damaged(
+            container.to_owned(),
+            "retained-version container is incomplete".into(),
+        ))
+    }
+}
+
+fn remove_empty_retained_parents(container: &Path) {
+    if let Some(lineage) = container.parent() {
+        let _ = fs::remove_dir(lineage);
+        if let Some(payloads) = lineage.parent() {
+            let _ = fs::remove_dir(payloads);
+        }
+    }
 }
 
 fn verify_existing_directory_chain(root: &Path, target: &Path) -> Result<(), RecoveryError> {
@@ -948,6 +1196,11 @@ pub enum RecoveryError {
     IdentityMismatch(PathBuf),
     IdentityCollision(PathBuf),
     CannotAllocateHumanPath(PathBuf),
+    MaintenanceRollback {
+        original: Box<RecoveryError>,
+        failures: Vec<String>,
+    },
+    MaintenanceCleanup(Vec<String>),
     InvalidMetadata(String),
     Damaged(PathBuf, String),
     Io(PathBuf, std::io::Error),
@@ -984,6 +1237,16 @@ impl fmt::Display for RecoveryError {
                 formatter,
                 "cannot allocate a unique recovery directory under {}",
                 path.display()
+            ),
+            Self::MaintenanceRollback { original, failures } => write!(
+                formatter,
+                "recovery maintenance failed ({original}); rollback was incomplete: {}",
+                failures.join("; ")
+            ),
+            Self::MaintenanceCleanup(failures) => write!(
+                formatter,
+                "recovery metadata was updated, but eviction cleanup was incomplete: {}",
+                failures.join("; ")
             ),
             Self::InvalidMetadata(cause) => write!(formatter, "invalid recovery metadata: {cause}"),
             Self::Damaged(path, cause) => {
@@ -1408,6 +1671,297 @@ mod tests {
         assert!(plan.evictions.is_empty());
         assert_eq!(plan.usage_after, 120);
         assert_eq!(plan.earliest_protected_until, Some(200));
+    }
+
+    #[test]
+    fn maintenance_removes_verified_oldest_entries_and_is_idempotent() {
+        let temporary = TempDir::new().unwrap();
+        let library = temporary.path().join("library");
+        fs::create_dir(&library).unwrap();
+        let store = RecoveryStore::create_or_open(&library).unwrap();
+        let lock = store.lock().unwrap();
+        let lineage_id = new_lineage_id();
+        let old = prepared_version(&store, &lock, &lineage_id, "old", 10, 10, b"old!", None);
+        let lineage_storage = old.storage_path.parent().unwrap().to_owned();
+        let newer = prepared_version(
+            &store,
+            &lock,
+            &lineage_id,
+            "newer",
+            20,
+            20,
+            b"new!",
+            Some(&lineage_storage),
+        );
+        let protected = prepared_version(
+            &store,
+            &lock,
+            &lineage_id,
+            "protected",
+            5,
+            200,
+            b"safe",
+            Some(&lineage_storage),
+        );
+        store
+            .save_index(
+                &lock,
+                &RecoveryIndex {
+                    schema: INDEX_SCHEMA,
+                    lineages: vec![ReleaseLineage {
+                        lineage_id,
+                        active_version_id: new_version_id(),
+                        expected_active_path: PathBuf::from("Artist/Album"),
+                        retained_versions: vec![old.clone(), newer.clone(), protected.clone()],
+                    }],
+                },
+            )
+            .unwrap();
+        drop(lock);
+
+        let report = store.maintain(6, 100).unwrap();
+
+        assert_eq!(report.usage_before, 12);
+        assert_eq!(report.usage_after, 4);
+        assert_eq!(
+            report
+                .evictions
+                .iter()
+                .map(|eviction| eviction.display_label.as_str())
+                .collect::<Vec<_>>(),
+            ["old", "newer"]
+        );
+        assert!(
+            !store
+                .retained_payload_path(&old.storage_path)
+                .unwrap()
+                .exists()
+        );
+        assert!(
+            !store
+                .retained_payload_path(&newer.storage_path)
+                .unwrap()
+                .exists()
+        );
+        assert!(
+            store
+                .retained_payload_path(&protected.storage_path)
+                .unwrap()
+                .exists()
+        );
+        let updated_index = store.load_index().unwrap();
+        let remaining = &updated_index.lineages[0].retained_versions;
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].version_id, protected.version_id);
+        assert_eq!(remaining[0].size_bytes, 4);
+        assert!(!store.root().join(EVICTION_STAGING).exists());
+
+        let repeated = store.maintain(6, 100).unwrap();
+        assert!(repeated.evictions.is_empty());
+        assert_eq!(repeated.usage_before, 4);
+        assert_eq!(repeated.usage_after, 4);
+    }
+
+    #[test]
+    fn maintenance_collision_rolls_back_without_changing_the_index_or_payload() {
+        let temporary = TempDir::new().unwrap();
+        let library = temporary.path().join("library");
+        fs::create_dir(&library).unwrap();
+        let store = RecoveryStore::create_or_open(&library).unwrap();
+        let lock = store.lock().unwrap();
+        let lineage_id = new_lineage_id();
+        let version = prepared_version(
+            &store,
+            &lock,
+            &lineage_id,
+            "eligible",
+            10,
+            10,
+            b"audio",
+            None,
+        );
+        let index = RecoveryIndex {
+            schema: INDEX_SCHEMA,
+            lineages: vec![ReleaseLineage {
+                lineage_id,
+                active_version_id: new_version_id(),
+                expected_active_path: PathBuf::from("Artist/Album"),
+                retained_versions: vec![version.clone()],
+            }],
+        };
+        store.save_index(&lock, &index).unwrap();
+        let collision = store
+            .root()
+            .join(EVICTION_STAGING)
+            .join(&version.version_id);
+        fs::create_dir_all(&collision).unwrap();
+        drop(lock);
+
+        let error = store.maintain(1, 100).unwrap_err();
+
+        assert!(matches!(error, RecoveryError::IdentityCollision(path) if path == collision));
+        assert_eq!(store.load_index().unwrap(), index);
+        assert!(
+            store
+                .retained_payload_path(&version.storage_path)
+                .unwrap()
+                .exists()
+        );
+    }
+
+    #[test]
+    fn maintenance_refuses_unexpected_retained_container_entries_before_staging() {
+        let temporary = TempDir::new().unwrap();
+        let library = temporary.path().join("library");
+        fs::create_dir(&library).unwrap();
+        let store = RecoveryStore::create_or_open(&library).unwrap();
+        let lock = store.lock().unwrap();
+        let lineage_id = new_lineage_id();
+        let version = prepared_version(
+            &store,
+            &lock,
+            &lineage_id,
+            "eligible",
+            10,
+            10,
+            b"audio",
+            None,
+        );
+        let index = RecoveryIndex {
+            schema: INDEX_SCHEMA,
+            lineages: vec![ReleaseLineage {
+                lineage_id,
+                active_version_id: new_version_id(),
+                expected_active_path: PathBuf::from("Artist/Album"),
+                retained_versions: vec![version.clone()],
+            }],
+        };
+        store.save_index(&lock, &index).unwrap();
+        drop(lock);
+        let payload = store.retained_payload_path(&version.storage_path).unwrap();
+        let container = payload.parent().unwrap();
+
+        let unexpected_file = container.join("notes.txt");
+        fs::write(&unexpected_file, b"do not delete").unwrap();
+        let error = store.maintain(1, 100).unwrap_err();
+        assert!(error.to_string().contains("unexpected entry"));
+        assert!(unexpected_file.exists());
+        fs::remove_file(&unexpected_file).unwrap();
+
+        let unexpected_directory = container.join("manual-copy");
+        fs::create_dir(&unexpected_directory).unwrap();
+        let error = store.maintain(1, 100).unwrap_err();
+        assert!(error.to_string().contains("unexpected entry"));
+        assert!(unexpected_directory.exists());
+        fs::remove_dir(&unexpected_directory).unwrap();
+
+        #[cfg(unix)]
+        {
+            let unexpected_symlink = container.join("outside-link");
+            std::os::unix::fs::symlink(temporary.path(), &unexpected_symlink).unwrap();
+            let error = store.maintain(1, 100).unwrap_err();
+            assert!(error.to_string().contains("unexpected entry"));
+            assert!(fs::symlink_metadata(&unexpected_symlink).is_ok());
+        }
+
+        assert_eq!(store.load_index().unwrap(), index);
+        assert!(payload.exists());
+        assert!(!store.root().join(EVICTION_STAGING).exists());
+    }
+
+    #[test]
+    fn maintenance_reports_post_commit_cleanup_failure_without_relisting_the_version() {
+        let temporary = TempDir::new().unwrap();
+        let library = temporary.path().join("library");
+        fs::create_dir(&library).unwrap();
+        let store = RecoveryStore::create_or_open(&library).unwrap();
+        let lock = store.lock().unwrap();
+        let lineage_id = new_lineage_id();
+        let version = prepared_version(
+            &store,
+            &lock,
+            &lineage_id,
+            "eligible",
+            10,
+            10,
+            b"audio",
+            None,
+        );
+        let mut index = RecoveryIndex::default();
+        index.lineages.push(ReleaseLineage {
+            lineage_id,
+            active_version_id: new_version_id(),
+            expected_active_path: PathBuf::from("Artist/Album"),
+            retained_versions: vec![version.clone()],
+        });
+        store.save_index(&lock, &index).unwrap();
+        drop(lock);
+
+        let error = store
+            .maintain_with(1, 100, |_| {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "injected cleanup failure",
+                ))
+            })
+            .unwrap_err();
+
+        assert!(matches!(error, RecoveryError::MaintenanceCleanup(_)));
+        assert!(error.to_string().contains("metadata was updated"));
+        assert!(
+            store.load_index().unwrap().lineages[0]
+                .retained_versions
+                .is_empty()
+        );
+        assert!(
+            !store
+                .retained_payload_path(&version.storage_path)
+                .unwrap()
+                .exists()
+        );
+        assert!(
+            store
+                .root()
+                .join(EVICTION_STAGING)
+                .join(&version.version_id)
+                .join("payload/track.flac")
+                .exists()
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn prepared_version(
+        store: &RecoveryStore,
+        lock: &RecoveryLock,
+        lineage_id: &str,
+        label: &str,
+        retained_at: u64,
+        protected_until: u64,
+        contents: &[u8],
+        lineage_storage: Option<&Path>,
+    ) -> RetainedVersion {
+        let version_id = new_version_id();
+        let prepared = store
+            .prepare_retained_payload(
+                lock,
+                lineage_id,
+                &version_id,
+                "Artist — Album",
+                retained_at,
+                lineage_storage,
+            )
+            .unwrap();
+        fs::create_dir(&prepared.payload).unwrap();
+        fs::write(prepared.payload.join("track.flac"), contents).unwrap();
+        RetainedVersion {
+            version_id,
+            historical_path: PathBuf::from("Artist/Album"),
+            display_label: label.into(),
+            retained_at,
+            protected_until,
+            size_bytes: 1,
+            storage_path: prepared.storage_path,
+        }
     }
 
     fn retained(

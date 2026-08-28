@@ -15,7 +15,34 @@ fn top_level_help_documents_the_primary_workflow() {
         assert!(stdout.contains("--cache-dir <DIRECTORY>"));
         assert!(stdout.contains("--diagnostics"));
         assert!(stdout.contains("cache"));
+        assert!(stdout.contains("recovery"));
+        assert!(stdout.contains("recovery maintain"));
     }
+}
+
+#[test]
+fn recovery_help_documents_maintenance() {
+    let output = Command::new(binary())
+        .args(["recovery", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("maintain"));
+    assert!(stdout.contains("retained release recovery copies"));
+}
+
+#[test]
+fn recovery_maintain_help_documents_non_interactive_eviction() {
+    let output = Command::new(binary())
+        .args(["recovery", "maintain", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Evict eligible retained copies without prompting"));
 }
 
 #[test]

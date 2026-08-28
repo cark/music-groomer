@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand, ValueEnum, ValueHint};
     version,
     about = "Prepare one album or standalone track for a polished music library",
     long_about = "Inspect one selected album directory or standalone audio file, find plausible metadata and artwork, and preview the result without changing the source.",
-    after_help = "Examples:\n  music-groomer /incoming/Album\n  music-groomer --offline /incoming/Album\n  music-groomer --diagnostics /incoming/Album\n  music-groomer --diagnostics=audio /incoming/Album\n  music-groomer --cache-dir /tmp/groomer-cache /incoming/Album\n  music-groomer cache\n  music-groomer cache clear"
+    after_help = "Examples:\n  music-groomer /incoming/Album\n  music-groomer --offline /incoming/Album\n  music-groomer --diagnostics /incoming/Album\n  music-groomer --diagnostics=audio /incoming/Album\n  music-groomer --cache-dir /tmp/groomer-cache /incoming/Album\n  music-groomer cache\n  music-groomer cache clear\n  music-groomer recovery maintain"
 )]
 pub struct Cli {
     /// Write detailed timing diagnostics to music-groomer's standard state directory
@@ -64,6 +64,12 @@ pub enum CliCommand {
         #[command(subcommand)]
         action: Option<CacheAction>,
     },
+
+    /// Inspect and maintain retained release recovery copies
+    Recovery {
+        #[command(subcommand)]
+        action: RecoveryAction,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Subcommand)]
@@ -73,4 +79,10 @@ pub enum CacheAction {
 
     /// Confirm and remove the selected music-groomer cache
     Clear,
+}
+
+#[derive(Clone, Copy, Debug, Subcommand)]
+pub enum RecoveryAction {
+    /// Evict eligible retained copies without prompting
+    Maintain,
 }
