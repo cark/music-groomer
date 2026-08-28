@@ -25,6 +25,9 @@ This page tracks implementation. Durable product reasoning belongs in the
 - The accepted post-milestone-3 review correction set was implemented and
   verified on 2026-08-28. This is maintenance of the accepted milestone rather
   than a new milestone closure.
+- Milestone 4 alignment and implementation were authorized on 2026-08-28. The
+  safe Apply vertical slice, offline tests, and first deliberate review are
+  locally complete; user exercise and milestone acceptance remain pending.
 
 ## Working rules
 
@@ -252,7 +255,7 @@ cache fallbacks.
 
 ## Milestone 4: safe apply and validation
 
-Status: pending
+Status: implemented and under review; not yet accepted
 
 Apply a confirmed immutable plan to temporary staging, validate it, and publish
 the separate result without overwriting collisions.
