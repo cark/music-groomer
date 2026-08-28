@@ -180,3 +180,9 @@ and free-space checks still pass.
 A hard crash during cross-filesystem publication can still leave short-lived
 output-side data. Keep this mechanism direct and testable; do not add a job
 system or exotic filesystem machinery to eliminate that narrow case.
+
+After successful publication, show one prominent completion screen with the
+full destination path, track and artwork counts, confirmation that validation
+passed, and confirmation that the source remained untouched. Then exit with a
+successful status; do not add another `Done` prompt or leave the user in a
+post-Apply menu.
