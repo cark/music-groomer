@@ -7,8 +7,8 @@ use crate::layout::{LayoutError, LayoutPolicy, LayoutTrack, ReleaseLayout, Stand
 use crate::matching::RankedCandidate;
 use crate::matching_ui::MetadataSelection;
 use crate::plan::{
-    ArtworkChoice, ArtworkOrigin, GroomingPlan, MetadataBasis, PlanWarning, TagChange, TagField,
-    TrackPlan,
+    AncillaryPlan, ArtworkChoice, ArtworkOrigin, GroomingPlan, MetadataBasis, PlanWarning,
+    TagChange, TagField, TrackPlan,
 };
 use crate::provider::source_inspection;
 use crate::source::{AudioTags, PlannedTags, SourceInspection};
@@ -61,6 +61,8 @@ pub fn build_plan(
         MetadataSelection::Cancelled => return Err(PlanningError::Cancelled),
     };
     let (artwork, archive_artwork_bytes) = artwork_plan(source, matched);
+    let ancillary = ancillary_plan(source, &artwork);
+    let ancillary_directories = ancillary_directories(source, &ancillary);
 
     Ok(GroomingPlan {
         source_label: source.source.display().to_string(),
@@ -70,6 +72,8 @@ pub fn build_plan(
         destination_root: destination_root.to_owned(),
         destination: destination_root.join(&layout.directory),
         tracks,
+        ancillary,
+        ancillary_directories,
         artwork,
         artwork_alternatives: Vec::new(),
         warnings: matched
@@ -87,6 +91,62 @@ pub fn build_plan(
             .count(),
         archive_artwork_bytes,
     })
+}
+
+fn ancillary_directories(source: &SourceInspection, ancillary: &[AncillaryPlan]) -> Vec<PathBuf> {
+    let audio_paths = source
+        .audio
+        .iter()
+        .map(|audio| &audio.relative_path)
+        .collect::<Vec<_>>();
+    source
+        .snapshot
+        .iter()
+        .filter(|entry| {
+            entry.kind == crate::source::SourceObjectKind::Directory
+                && !entry.relative_path.as_os_str().is_empty()
+        })
+        .filter(|entry| {
+            ancillary
+                .iter()
+                .any(|file| file.source_relative.starts_with(&entry.relative_path))
+                || !audio_paths
+                    .iter()
+                    .any(|audio| audio.starts_with(&entry.relative_path))
+        })
+        .map(|entry| entry.relative_path.clone())
+        .collect()
+}
+
+fn ancillary_plan(source: &SourceInspection, artwork: &ArtworkChoice) -> Vec<AncillaryPlan> {
+    source
+        .ancillary
+        .iter()
+        .filter_map(|file| {
+            let destination_relative = match &artwork.origin {
+                ArtworkOrigin::SourceSidecar { source_name }
+                    if file.relative_path == Path::new(source_name) =>
+                {
+                    return None;
+                }
+                ArtworkOrigin::CoverArtArchive { .. }
+                    if source
+                        .artwork
+                        .iter()
+                        .any(|candidate| candidate.relative_path == file.relative_path) =>
+                {
+                    PathBuf::from("original-artwork").join(&file.relative_path)
+                }
+                ArtworkOrigin::SourceSidecar { .. }
+                | ArtworkOrigin::CoverArtArchive { .. }
+                | ArtworkOrigin::None => file.relative_path.clone(),
+            };
+            Some(AncillaryPlan {
+                source_relative: file.relative_path.clone(),
+                destination_relative,
+            })
+        })
+        .collect()
 }
 
 type BuiltPlan = (

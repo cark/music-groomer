@@ -141,6 +141,8 @@ pub(super) fn build_plan(
         destination_root: destination_root.to_owned(),
         destination,
         tracks,
+        ancillary: Vec::new(),
+        ancillary_directories: Vec::new(),
         artwork,
         artwork_alternatives,
         warnings: data.warning.clone().into_iter().collect(),

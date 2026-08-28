@@ -1,5 +1,6 @@
 #![deny(clippy::disallowed_macros)]
 
+pub mod apply;
 pub mod artwork_viewer;
 pub mod config;
 pub mod demo;

@@ -6,7 +6,10 @@ mod model;
 mod mp4;
 mod snapshot;
 
-pub use audio::{AudioReadError, LoftyAudioReader, PlannedTags};
+pub use audio::{
+    AudioPreservationSnapshot, AudioReadError, LoftyAudioReader, PlannedTags, PreservedPicture,
+    PreservedTagItem, PreservedTagValue,
+};
 pub use filesystem::{InspectionError, SourceInspector};
 pub use model::{
     AncillaryFile, ArtworkCandidate, ArtworkFormat, AudioFormat, AudioProperties, AudioTags,

@@ -63,6 +63,12 @@ pub struct TrackPlan {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AncillaryPlan {
+    pub source_relative: PathBuf,
+    pub destination_relative: PathBuf,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ArtworkOrigin {
     SourceSidecar { source_name: String },
     CoverArtArchive { release_group_id: String },
@@ -114,6 +120,8 @@ pub struct GroomingPlan {
     pub destination_root: PathBuf,
     pub destination: PathBuf,
     pub tracks: Vec<TrackPlan>,
+    pub ancillary: Vec<AncillaryPlan>,
+    pub ancillary_directories: Vec<PathBuf>,
     pub artwork: ArtworkChoice,
     pub artwork_alternatives: Vec<ArtworkChoice>,
     pub warnings: Vec<PlanWarning>,
@@ -199,6 +207,8 @@ pub struct ApplyReport {
     pub artwork_validated: bool,
     pub source_unchanged: bool,
     pub simulated: bool,
+    pub warnings: Vec<String>,
+    pub publication_copied: bool,
 }
 
 #[cfg(test)]
@@ -233,6 +243,8 @@ mod tests {
                 }],
                 planned_tags: None,
             }],
+            ancillary: Vec::new(),
+            ancillary_directories: Vec::new(),
             artwork: ArtworkChoice {
                 origin: ArtworkOrigin::None,
                 label: "No sidecar artwork".into(),

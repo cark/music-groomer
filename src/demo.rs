@@ -138,6 +138,8 @@ pub fn run(
                         artwork_validated: plan.artwork.output_name.is_some(),
                         source_unchanged: true,
                         simulated: true,
+                        warnings: Vec::new(),
+                        publication_copied: false,
                     };
                     interaction.blank()?;
                     interaction.success("Demo apply complete. No files were written.")?;
