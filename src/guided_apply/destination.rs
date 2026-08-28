@@ -7,7 +7,7 @@ use crate::guided_matching::GuidedMatchResult;
 use crate::plan::GroomingPlan;
 use crate::planning::build_plan;
 use crate::source::SourceInspection;
-use crate::terminal::{Action, ActionMenu, Interaction, MenuId, UiLine};
+use crate::terminal::{Action, ActionMenu, Interaction, MenuId, SemanticRole, UiLine};
 
 pub fn initial_plan(
     interaction: &mut impl Interaction,
@@ -48,22 +48,23 @@ fn choose(
     current: Option<&GroomingPlan>,
 ) -> io::Result<Option<GroomingPlan>> {
     interaction.section_heading("Choose destination")?;
-    if let Some(current) = current {
-        interaction.path_field(
-            "Current root",
-            current.destination_root.display().to_string(),
-        )?;
-    }
-    interaction.prose("  The destination root must already exist. Enter c to cancel.")?;
+    interaction.prose("  The destination root must already exist.")?;
     loop {
-        let answer = interaction.prompt(UiLine::prompt("Destination root: "))?;
-        if matches!(
-            answer.to_ascii_lowercase().as_str(),
-            "c" | "cancel" | "b" | "back"
-        ) {
+        let answer = interaction.prompt(destination_prompt(current))?;
+        if answer.is_empty() {
             return Ok(None);
         }
-        let proposed = match plan_at(source, matched, Path::new(&answer)) {
+        let root = match DestinationRoot::existing(&answer) {
+            Ok(root) => root,
+            Err(error) => {
+                interaction.error(format!("Not usable: {error}"))?;
+                continue;
+            }
+        };
+        if current.is_some_and(|plan| plan.destination_root == root.path()) {
+            return Ok(None);
+        }
+        let proposed = match plan_at_root(source, matched, &root) {
             Ok(plan) => plan,
             Err(error) => {
                 interaction.error(format!("Not usable: {error}"))?;
@@ -98,6 +99,20 @@ fn choose(
     }
 }
 
+fn destination_prompt(current: Option<&GroomingPlan>) -> UiLine {
+    if let Some(current) = current {
+        UiLine::new()
+            .with(SemanticRole::Prompt, "Destination root [")
+            .with(
+                SemanticRole::Path,
+                current.destination_root.display().to_string(),
+            )
+            .with(SemanticRole::Prompt, "]: ")
+    } else {
+        UiLine::prompt("Destination root (Enter to go back): ")
+    }
+}
+
 fn plan_at(
     source: &SourceInspection,
     matched: &GuidedMatchResult,
@@ -105,6 +120,14 @@ fn plan_at(
 ) -> Result<GroomingPlan, String> {
     let root = DestinationRoot::existing(&path.display().to_string())
         .map_err(|error| error.to_string())?;
+    plan_at_root(source, matched, &root)
+}
+
+fn plan_at_root(
+    source: &SourceInspection,
+    matched: &GuidedMatchResult,
+    root: &DestinationRoot,
+) -> Result<GroomingPlan, String> {
     let plan = build_plan(source, matched, root.path()).map_err(|error| error.to_string())?;
     root.relocate(plan).map_err(|error| error.to_string())
 }

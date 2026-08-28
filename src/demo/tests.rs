@@ -225,7 +225,7 @@ fn destination_change_refuses_an_existing_final_album() {
     fs::create_dir_all(temporary_root.path().join("The Group/1971 - The Album"))
         .expect("collision fixture should be creatable");
     let root = temporary_root.path().display().to_string();
-    let mut interaction = ScriptedInteraction::new(&["d", &root, "b", "c"]);
+    let mut interaction = ScriptedInteraction::new(&["d", &root, "", "c"]);
 
     let outcome = run(&mut interaction, Some(DemoScenario::ConfidentAlbum), None)
         .expect("demo should return to preview after collision");

@@ -275,12 +275,18 @@ fn choose_destination(
 ) -> Result<GroomingPlan, DemoError> {
     interaction.blank()?;
     interaction.heading("Change destination")?;
-    interaction.path_field("Current root", plan.destination_root.display().to_string())?;
-    interaction.prose("The new root must already exist. Enter b to go back.")?;
+    interaction.prose("The new root must already exist.")?;
 
     loop {
-        let answer = interaction.prompt(UiLine::prompt("Destination root: "))?;
-        if matches!(answer.to_ascii_lowercase().as_str(), "b" | "back") {
+        let prompt = UiLine::new()
+            .with(SemanticRole::Prompt, "Destination root [")
+            .with(
+                SemanticRole::Path,
+                plan.destination_root.display().to_string(),
+            )
+            .with(SemanticRole::Prompt, "]: ");
+        let answer = interaction.prompt(prompt)?;
+        if answer.is_empty() {
             return Ok(plan);
         }
         let root = match DestinationRoot::existing(&answer) {
@@ -290,6 +296,9 @@ fn choose_destination(
                 continue;
             }
         };
+        if root.path() == plan.destination_root {
+            return Ok(plan);
+        }
         let proposed = match root.relocate(plan.clone()) {
             Ok(proposed) => proposed,
             Err(error) => {
@@ -315,7 +324,7 @@ fn choose_destination(
                     ))?;
                     return Ok(proposed);
                 }
-                Some(Action::Back) => return Ok(plan),
+                Some(Action::Back) => break,
                 _ => interaction.error("Please choose one of the displayed actions.")?,
             }
         }

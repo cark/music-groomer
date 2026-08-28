@@ -254,6 +254,67 @@ fn clear_match_reaches_read_only_preview_without_extra_identifier_input() {
 }
 
 #[test]
+fn missing_destination_can_return_to_the_live_metadata_preview() {
+    let temporary = TempDir::new().unwrap();
+    let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);
+    let destination = temporary.path().join("library");
+    std::fs::create_dir(&destination).unwrap();
+    let mut interaction = ScriptedInteraction {
+        answers: VecDeque::from([
+            "d".into(),
+            "".into(),
+            "d".into(),
+            destination.display().to_string(),
+            "o".into(),
+        ]),
+        transcript: String::new(),
+    };
+    let mut config = crate::config::AppConfig::default();
+    let mut selected_plan = None;
+    let source = source();
+
+    run_with_identification_until(
+        &mut interaction,
+        &source,
+        false,
+        GuidedProviders::new(
+            FakeMetadata {
+                results: VecDeque::from([vec![candidate("Album")]]),
+            },
+            NoArtwork,
+            FakeFingerprinter { calls: 0 },
+            FakeAcoustId { score: 0.95 },
+        ),
+        cache,
+        &mut NoopViewer,
+        |interaction, matched| {
+            selected_plan = crate::guided_apply::choose_initial_destination(
+                interaction,
+                &source,
+                matched,
+                &mut config,
+                None,
+            )?;
+            Ok(selected_plan.is_some())
+        },
+    )
+    .unwrap();
+
+    assert!(selected_plan.is_some());
+    assert_eq!(
+        interaction.transcript.matches("Metadata preview").count(),
+        2
+    );
+    assert_eq!(
+        interaction
+            .transcript
+            .matches("Checking metadata and provider cache")
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn materially_changed_refresh_keeps_current_preview_by_default() {
     let temporary = TempDir::new().unwrap();
     let cache = ProviderCache::new(temporary.path().join("cache"), 1024 * 1024);

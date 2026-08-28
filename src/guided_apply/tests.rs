@@ -13,16 +13,92 @@ use crate::matching::{MatchDecision, MatchPolicy};
 use crate::matching_ui::MetadataSelection;
 use crate::plan::MatchSelection;
 use crate::provider::source_inspection;
-use crate::source::SourceInspector;
+use crate::source::{SourceInspection, SourceInspector};
 
 #[test]
 fn one_guided_session_can_confirm_apply_and_exit_after_success() {
     let temporary = TempDir::new().unwrap();
+    let (source_path, library, source, matched) = prepared_session(&temporary);
+    let source_bytes = fs::read(&source_path).unwrap();
+    let mut config = AppConfig::default();
+    let mut interaction = Scripted::new(["a", ""]);
+    let plan = choose_initial_destination(
+        &mut interaction,
+        &source,
+        &matched,
+        &mut config,
+        Some(&library),
+    )
+    .unwrap()
+    .unwrap();
+
+    run_with_plan(
+        &mut interaction,
+        &source,
+        matched,
+        config,
+        plan,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    assert!(interaction.transcript.contains("Exact grooming preview"));
+    assert!(interaction.transcript.contains("Applying confirmed plan"));
+    assert!(interaction.transcript.contains("Grooming complete"));
+    assert!(interaction.transcript.contains("Validation: passed"));
+    assert_eq!(fs::read(source_path).unwrap(), source_bytes);
+    assert!(
+        library
+            .join("Artist/2000 - Single/01 - Track.flac")
+            .exists()
+    );
+}
+
+#[test]
+fn unchanged_destination_returns_to_preview_without_a_save_question() {
+    let temporary = TempDir::new().unwrap();
+    let (_, library, source, matched) = prepared_session(&temporary);
+    let mut config = AppConfig::default();
+    let mut interaction = Scripted::new([
+        "d".to_owned(),
+        String::new(),
+        "d".to_owned(),
+        library.display().to_string(),
+        "c".to_owned(),
+    ]);
+    let plan = choose_initial_destination(
+        &mut interaction,
+        &source,
+        &matched,
+        &mut config,
+        Some(&library),
+    )
+    .unwrap()
+    .unwrap();
+
+    run_with_plan(
+        &mut interaction,
+        &source,
+        matched,
+        config,
+        plan,
+        &mut NoopViewer,
+    )
+    .unwrap();
+
+    let expected_prompt = format!("Destination root [{}]: ", library.display());
+    assert_eq!(interaction.transcript.matches(&expected_prompt).count(), 2);
+    assert!(!interaction.transcript.contains("Destination is valid."));
+    assert!(!interaction.transcript.contains("Use and save as default"));
+}
+
+fn prepared_session(
+    temporary: &TempDir,
+) -> (PathBuf, PathBuf, SourceInspection, GuidedMatchResult) {
     let source_path = temporary.path().join("incoming.flac");
     let library = temporary.path().join("library");
     fs::copy(fixture("seed.flac"), &source_path).unwrap();
     fs::create_dir(&library).unwrap();
-    let source_bytes = fs::read(&source_path).unwrap();
     let mut source = SourceInspector::default().inspect(&source_path).unwrap();
     source.audio[0].tags.title = Some("Track".into());
     source.audio[0].tags.artist = Some("Artist".into());
@@ -43,28 +119,7 @@ fn one_guided_session_can_confirm_apply_and_exit_after_success() {
         warnings: Vec::new(),
         match_selection: MatchSelection::UserChosen,
     };
-    let mut interaction = Scripted::new(["a", ""]);
-
-    run(
-        &mut interaction,
-        &source,
-        matched,
-        AppConfig::default(),
-        Some(&library),
-        &mut NoopViewer,
-    )
-    .unwrap();
-
-    assert!(interaction.transcript.contains("Exact grooming preview"));
-    assert!(interaction.transcript.contains("Applying confirmed plan"));
-    assert!(interaction.transcript.contains("Grooming complete"));
-    assert!(interaction.transcript.contains("Validation: passed"));
-    assert_eq!(fs::read(source_path).unwrap(), source_bytes);
-    assert!(
-        library
-            .join("Artist/2000 - Single/01 - Track.flac")
-            .exists()
-    );
+    (source_path, library, source, matched)
 }
 
 fn candidate() -> CandidateRelease {
@@ -98,9 +153,9 @@ struct Scripted {
 }
 
 impl Scripted {
-    fn new(answers: impl IntoIterator<Item = &'static str>) -> Self {
+    fn new<S: Into<String>>(answers: impl IntoIterator<Item = S>) -> Self {
         Self {
-            answers: answers.into_iter().map(str::to_owned).collect(),
+            answers: answers.into_iter().map(Into::into).collect(),
             transcript: String::new(),
         }
     }

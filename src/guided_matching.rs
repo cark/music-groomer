@@ -27,6 +27,7 @@ use artwork::{
 use identification::{IdentificationAdapters, identify};
 use warnings::{WarningState, selection_year_warnings};
 
+#[derive(Clone, Debug)]
 pub struct GuidedMatchResult {
     pub metadata: MetadataSelection,
     pub metadata_provenance: MetadataProvenance,
@@ -48,8 +49,8 @@ pub enum MetadataProvenance {
     None,
 }
 
-pub fn run<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
-    interaction: &mut impl Interaction,
+pub fn run<I: Interaction, M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
+    interaction: &mut I,
     source: &SourceInspection,
     offline: bool,
     metadata_provider: M,
@@ -57,6 +58,7 @@ pub fn run<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
     cache: ProviderCache,
     viewer: &mut V,
 ) -> io::Result<GuidedMatchResult> {
+    let mut accept_preview = |_: &mut I, _: &GuidedMatchResult| Ok(true);
     run_inner(
         interaction,
         source,
@@ -68,6 +70,7 @@ pub fn run<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
         },
         cache,
         viewer,
+        &mut accept_preview,
     )
 }
 
@@ -90,18 +93,48 @@ impl<M, A, F, I> GuidedProviders<M, A, F, I> {
 }
 
 pub fn run_with_identification<
+    T: Interaction,
     M: MetadataProvider,
     A: ArtworkProvider,
     V: ArtworkViewer,
     F: AudioFingerprinter,
     I: AcoustIdProvider,
 >(
-    interaction: &mut impl Interaction,
+    interaction: &mut T,
     source: &SourceInspection,
     offline: bool,
     providers: GuidedProviders<M, A, F, I>,
     cache: ProviderCache,
     viewer: &mut V,
+) -> io::Result<GuidedMatchResult> {
+    let mut accept_preview = |_: &mut T, _: &GuidedMatchResult| Ok(true);
+    run_with_identification_until(
+        interaction,
+        source,
+        offline,
+        providers,
+        cache,
+        viewer,
+        &mut accept_preview,
+    )
+}
+
+pub fn run_with_identification_until<
+    T: Interaction,
+    M: MetadataProvider,
+    A: ArtworkProvider,
+    V: ArtworkViewer,
+    F: AudioFingerprinter,
+    I: AcoustIdProvider,
+    D: FnMut(&mut T, &GuidedMatchResult) -> io::Result<bool>,
+>(
+    interaction: &mut T,
+    source: &SourceInspection,
+    offline: bool,
+    providers: GuidedProviders<M, A, F, I>,
+    cache: ProviderCache,
+    viewer: &mut V,
+    mut accept_preview: D,
 ) -> io::Result<GuidedMatchResult> {
     let GuidedProviders {
         metadata,
@@ -123,6 +156,7 @@ pub fn run_with_identification<
         },
         cache,
         viewer,
+        &mut accept_preview,
     )
 }
 
@@ -132,13 +166,20 @@ struct RunProviders<'a, M, A> {
     identification: Option<IdentificationAdapters<'a>>,
 }
 
-fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
-    interaction: &mut impl Interaction,
+fn run_inner<
+    T: Interaction,
+    M: MetadataProvider,
+    A: ArtworkProvider,
+    V: ArtworkViewer,
+    D: FnMut(&mut T, &GuidedMatchResult) -> io::Result<bool>,
+>(
+    interaction: &mut T,
     source: &SourceInspection,
     offline: bool,
     providers: RunProviders<'_, M, A>,
     cache: ProviderCache,
     viewer: &mut V,
+    accept_preview: &mut D,
 ) -> io::Result<GuidedMatchResult> {
     let RunProviders {
         metadata,
@@ -381,20 +422,47 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
                     )?;
                 }
             }
-            Some(Action::Done) => break,
+            Some(Action::Done) => {
+                let result = current_result(
+                    &inspection,
+                    &metadata,
+                    source_year_fallback,
+                    &candidates,
+                    &artwork,
+                    archive_artwork.as_ref(),
+                    identification.as_ref(),
+                    warning_state.current(),
+                    match_selection,
+                );
+                if accept_preview(interaction, &result)? {
+                    return Ok(result);
+                }
+            }
             None if answer.is_empty() => {}
             _ => interaction.error("Please choose a displayed preview action.")?,
         }
     }
+}
 
+#[allow(clippy::too_many_arguments)]
+fn current_result(
+    inspection: &crate::domain::Inspection,
+    metadata: &MetadataSelection,
+    source_year_fallback: Option<u16>,
+    candidates: &[RankedCandidate],
+    artwork: &ArtworkSelection,
+    archive_artwork: Option<&crate::provider::ProviderArtwork>,
+    identification: Option<&FingerprintEvidence>,
+    warnings: Vec<String>,
+    match_selection: MatchSelection,
+) -> GuidedMatchResult {
     let selected_has_fingerprint = matches!(
-        &metadata,
+        metadata,
         MetadataSelection::Provider(selected)
             if identification
-                .as_ref()
                 .is_some_and(|evidence| evidence.supports_candidate(selected))
     );
-    let metadata_provenance = match &metadata {
+    let metadata_provenance = match metadata {
         MetadataSelection::Provider(_) if selected_has_fingerprint => source_year_fallback.map_or(
             MetadataProvenance::MusicBrainzWithFingerprint,
             MetadataProvenance::MusicBrainzWithFingerprintAndSourceYear,
@@ -404,20 +472,20 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
             MetadataProvenance::MusicBrainzWithSourceYear,
         ),
         MetadataSelection::ExistingTags => MetadataProvenance::ExistingTags {
-            artwork_via_source_id: common_release_group_id(&inspection).is_some(),
+            artwork_via_source_id: common_release_group_id(inspection).is_some(),
         },
         MetadataSelection::Cancelled => MetadataProvenance::None,
     };
-    Ok(GuidedMatchResult {
-        metadata,
+    GuidedMatchResult {
+        metadata: metadata.clone(),
         metadata_provenance,
-        candidates,
-        artwork,
-        archive_artwork,
-        identification,
-        warnings: warning_state.current(),
+        candidates: candidates.to_vec(),
+        artwork: artwork.clone(),
+        archive_artwork: archive_artwork.cloned(),
+        identification: identification.cloned(),
+        warnings,
         match_selection,
-    })
+    }
 }
 
 fn show_preview(

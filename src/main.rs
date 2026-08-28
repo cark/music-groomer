@@ -222,12 +222,13 @@ fn run_inspection(
         } else {
             inspection_ui::run_before_matching(interaction, &inspection)
                 .map_err(|error| format!("terminal interaction failed: {error}"))?;
-            let config = AppConfig::load().map_err(|error| error.to_string())?;
+            let mut config = AppConfig::load().map_err(|error| error.to_string())?;
             let cache = provider_cache(&config, cache_directory)?;
             let mut viewer = SystemArtworkViewer::new();
             let mut fingerprinter = FpcalcFingerprinter::default();
             let mut acoustid = AcoustId::new();
-            let result = guided_matching::run_with_identification(
+            let mut selected_plan = None;
+            let result = guided_matching::run_with_identification_until(
                 interaction,
                 &inspection,
                 offline,
@@ -239,6 +240,16 @@ fn run_inspection(
                 ),
                 cache,
                 &mut viewer,
+                |interaction, matched| {
+                    selected_plan = music_groomer::guided_apply::choose_initial_destination(
+                        interaction,
+                        &inspection,
+                        matched,
+                        &mut config,
+                        output.as_deref(),
+                    )?;
+                    Ok(selected_plan.is_some())
+                },
             )
             .map_err(|error| format!("terminal interaction failed: {error}"))?;
             if result.metadata == MetadataSelection::Cancelled {
@@ -251,12 +262,13 @@ fn run_inspection(
                 }
                 return Ok(());
             }
-            music_groomer::guided_apply::run(
+            let plan = selected_plan.expect("metadata preview advances only with a destination");
+            music_groomer::guided_apply::run_with_plan(
                 interaction,
                 &inspection,
                 result,
                 config,
-                output.as_deref(),
+                plan,
                 &mut viewer,
             )
             .map_err(|error| error.to_string())

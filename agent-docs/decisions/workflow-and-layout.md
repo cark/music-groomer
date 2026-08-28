@@ -61,7 +61,12 @@ normally be the Navidrome media-library root. Make `Change destination` visible
 inside the guided preview. An alternative root must already exist; after
 showing the resulting album path and checking for collision, offer `Use once`,
 `Use and save as default`, or `Go back`. Always confirm the fully resolved
-destination before applying.
+destination before applying. When changing an existing destination, show the
+current root as the bracketed prompt default; Enter or explicitly repeating
+that root returns to the exact preview without a save question. Do not use a
+special `c` cancellation value. If no destination is configured, Enter returns
+to the still-live metadata preview; it cannot advance to an exact plan until a
+valid destination is selected.
 
 Temporary staging belongs in the operating system's temporary directory and is
 not the final output. v0.1 creates a new result under the destination root and

@@ -47,20 +47,24 @@ impl From<io::Error> for GuidedApplyError {
     }
 }
 
-pub fn run<V: ArtworkViewer>(
+pub fn choose_initial_destination(
+    interaction: &mut impl Interaction,
+    source: &SourceInspection,
+    matched: &GuidedMatchResult,
+    config: &mut AppConfig,
+    output: Option<&Path>,
+) -> io::Result<Option<GroomingPlan>> {
+    destination::initial_plan(interaction, source, matched, config, output)
+}
+
+pub fn run_with_plan<V: ArtworkViewer>(
     interaction: &mut impl Interaction,
     source: &SourceInspection,
     mut matched: GuidedMatchResult,
     mut config: AppConfig,
-    output: Option<&Path>,
+    mut plan: GroomingPlan,
     viewer: &mut V,
 ) -> Result<(), GuidedApplyError> {
-    let Some(mut plan) =
-        destination::initial_plan(interaction, source, &matched, &mut config, output)?
-    else {
-        interaction.prose("Cancelled. The source and destination were not changed.")?;
-        return Ok(());
-    };
     offer_abandoned_cleanup(interaction, &plan.destination_root)?;
     let menu = ActionMenu::for_id(MenuId::ExactPreview);
 
@@ -89,7 +93,8 @@ pub fn run<V: ArtworkViewer>(
             }
             Some(Action::Destination) => {
                 let previous_root = plan.destination_root.clone();
-                plan = destination::change(interaction, source, &matched, &mut config, plan)?;
+                plan =
+                    destination::change(interaction, source, &matched, &mut config, plan.clone())?;
                 if plan.destination_root != previous_root {
                     offer_abandoned_cleanup(interaction, &plan.destination_root)?;
                 }
