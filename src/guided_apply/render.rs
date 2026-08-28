@@ -8,6 +8,7 @@ pub fn summary(
     interaction: &mut impl Interaction,
     plan: &GroomingPlan,
     replacement: Option<&ReplacementContext>,
+    recovery_grace_days: Option<u64>,
 ) -> io::Result<()> {
     interaction.section_heading("Exact grooming preview")?;
     if let Some(replacement) = replacement {
@@ -21,6 +22,13 @@ pub fn summary(
             replacement.destination.display().to_string(),
         )?;
         interaction.prose("  The complete current release will be retained for recovery.")?;
+        interaction.field(
+            "Recovery protection",
+            format!(
+                "at least {} days",
+                recovery_grace_days.expect("replacement preview has a recovery grace period")
+            ),
+        )?;
     }
     match &plan.metadata {
         MetadataBasis::MusicBrainz(release) => {

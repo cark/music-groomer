@@ -18,6 +18,7 @@ use crate::config::AppConfig;
 use crate::guided_matching::{GuidedMatchResult, revise_artwork};
 use crate::plan::GroomingPlan;
 use crate::planning::build_plan;
+use crate::recovery::retained_time_label;
 use crate::replacement::{ReplacementContext, detect};
 use crate::source::SourceInspection;
 use crate::terminal::{Action, ActionMenu, Interaction, MenuId, SemanticRole, UiLine, byte_count};
@@ -76,12 +77,26 @@ pub fn run_with_plan<V: ArtworkViewer>(
     loop {
         let replacement = detect(source, &plan)
             .map_err(|error| GuidedApplyError::Replacement(error.to_string()))?;
-        render::summary(interaction, &plan, replacement.as_ref())?;
+        let recovery_grace_days = replacement
+            .as_ref()
+            .map(|_| config.recovery_grace_days())
+            .transpose()
+            .map_err(|error| GuidedApplyError::Replacement(error.to_string()))?;
+        render::summary(
+            interaction,
+            &plan,
+            replacement.as_ref(),
+            recovery_grace_days,
+        )?;
         let answer = interaction.prompt(menu.prompt("Choose: "))?;
         match menu.action(&answer) {
             Some(Action::Apply) => {
                 let confirmed = if let Some(replacement) = &replacement {
-                    confirm_replacement(interaction, replacement)?
+                    confirm_replacement(
+                        interaction,
+                        replacement,
+                        recovery_grace_days.expect("replacement has a recovery grace period"),
+                    )?
                 } else {
                     confirm_apply(interaction, &plan)?
                 };
@@ -158,7 +173,7 @@ fn apply(
                     plan,
                     context,
                     ReplacementRetention {
-                        display_label: plan.source_label.clone(),
+                        display_label: replacement_display_label(context),
                         retained_at,
                         protected_until,
                     },
@@ -188,11 +203,29 @@ fn apply(
             interaction.field("Validation", "passed")?;
             if let Some(replacement) = replacement {
                 interaction.field("Selected release", "replaced after validation")?;
-                interaction.path_field(
-                    "Retained recovery copy",
-                    replacement.retained_path.display().to_string(),
+                let retained_time = retained_time_label(replacement.retained_at)
+                    .unwrap_or_else(|_| "unknown retention time".into());
+                let protected_until = retained_time_label(replacement.protected_until)
+                    .unwrap_or_else(|_| "unknown protection deadline".into());
+                let protection_days = replacement
+                    .protected_until
+                    .saturating_sub(replacement.retained_at)
+                    / (24 * 60 * 60);
+                interaction.success(format!(
+                    "✓ Previous version safely stashed as {} · {retained_time}.",
+                    replacement.display_label
+                ))?;
+                interaction.field(
+                    "Protected from automatic cleanup",
+                    format!("for at least {protection_days} days, until {protected_until}"),
                 )?;
-                interaction.prose("  Use `music-groomer recovery` to manage or restore it.")?;
+                interaction.prose(
+                    "  After that date it becomes eligible for cleanup; it is not necessarily deleted then.",
+                )?;
+                interaction.prose(format!(
+                    "  Run `music-groomer recovery` and choose “{} · {retained_time}” to restore it.",
+                    replacement.display_label
+                ))?;
             } else {
                 interaction.field("Source", "untouched")?;
             }
@@ -259,6 +292,7 @@ fn confirm_apply(interaction: &mut impl Interaction, plan: &GroomingPlan) -> io:
 fn confirm_replacement(
     interaction: &mut impl Interaction,
     replacement: &ReplacementContext,
+    recovery_grace_days: u64,
 ) -> io::Result<bool> {
     interaction.section_heading("REPLACE EXISTING RELEASE")?;
     interaction.warning("Warning: the current library release will stop being active.")?;
@@ -271,6 +305,10 @@ fn confirm_replacement(
         replacement.destination.display().to_string(),
     )?;
     interaction.prose("  The complete current version will be retained for recovery.")?;
+    interaction.field(
+        "Recovery protection",
+        format!("at least {recovery_grace_days} days"),
+    )?;
     loop {
         let answer = interaction
             .prompt(UiLine::confirmation_prompt(
@@ -282,6 +320,26 @@ fn confirm_replacement(
             "" | "n" | "no" => return Ok(false),
             _ => interaction.error("Please answer Yes or No.")?,
         }
+    }
+}
+
+fn replacement_display_label(context: &ReplacementContext) -> String {
+    let components = context
+        .historical_path
+        .components()
+        .filter_map(|component| match component {
+            std::path::Component::Normal(value) => Some(value.to_string_lossy()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    match components.as_slice() {
+        [] => "Retained release".into(),
+        [release] => release.to_string(),
+        components => format!(
+            "{} — {}",
+            components[components.len() - 2],
+            components[components.len() - 1]
+        ),
     }
 }
 

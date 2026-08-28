@@ -166,6 +166,11 @@ fn replacement_preview_and_confirmation_default_to_no_without_moving_anything() 
     assert!(
         interaction
             .transcript
+            .contains("Recovery protection: at least 30 days")
+    );
+    assert!(
+        interaction
+            .transcript
             .contains("Nothing changes until replacement Apply is explicitly confirmed")
     );
     assert!(
@@ -219,7 +224,18 @@ fn explicit_replacement_confirmation_retains_old_album_and_activates_new_one() {
 
     assert!(!active.exists());
     assert!(destination.join("01 - Track.flac").exists());
-    assert!(interaction.transcript.contains("Retained recovery copy"));
+    assert!(
+        interaction
+            .transcript
+            .contains("Previous version safely stashed as Artist — Old Album")
+    );
+    assert!(
+        interaction
+            .transcript
+            .contains("Protected from automatic cleanup: for at least 30 days")
+    );
+    assert!(interaction.transcript.contains("music-groomer recovery"));
+    assert!(!interaction.transcript.contains("/payload"));
     let store = crate::recovery::RecoveryStore::open_existing(&library)
         .unwrap()
         .unwrap();
@@ -228,7 +244,7 @@ fn explicit_replacement_confirmation_retains_old_album_and_activates_new_one() {
     assert_eq!(
         fs::read(
             store
-                .retained_payload_path(&index.lineages[0].lineage_id, &retained.version_id)
+                .retained_payload_path(&retained.storage_path)
                 .unwrap()
                 .join("seed.flac")
         )

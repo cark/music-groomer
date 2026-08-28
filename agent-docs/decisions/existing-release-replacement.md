@@ -30,15 +30,29 @@ separate recovery-root configuration. Put a blank `.ndignore` in the recovery
 directory so Navidrome excludes the complete subtree; the dot-prefixed name is
 only additional protection. Mark the directory as music-groomer-owned and
 verify its marker and `.ndignore` before every replacement. Never claim or
-clean an unmarked directory. Report the exact retained-release path after a
-successful replacement.
+clean an unmarked directory. Reserve exact internal paths for diagnostics and
+errors where they materially help recovery; do not present them as the normal
+way to identify or restore a successful retained version.
 
 Manage retained releases through a dedicated `music-groomer recovery` guided
 interaction rather than requiring manual browsing of the hidden directory or
 adding recovery actions to the ordinary grooming menu. The replacement
-completion screen reports the retained entry and points to that command. The
-recovery interaction lists enough human-readable provenance to identify each
-entry before any restore or explicit removal.
+completion screen reports a friendly restore label and points to that command,
+not to the internal payload path. It says how long the entry remains protected
+from automatic cleanup and explains that the end of protection means
+eligibility rather than guaranteed deletion. The recovery interaction lists
+enough human-readable provenance to identify each entry before any restore or
+explicit removal. Users select the displayed entry from the guided list; they
+do not type its label as a command argument.
+
+Keep the on-disk recovery layout shallow and intelligible for diagnostics even
+though users are not expected to browse or modify it. Derive bounded,
+cross-platform-safe lineage and retained-version directory names from the
+historical release label and retention time, adding `(2)`, `(3)`, and so on for
+filesystem-name collisions. Keep UUID lineage and version identifiers in the
+owned marker and index as the only authoritative identity; directory names are
+descriptive and may never be used to infer ownership or lineage. Do not expose
+raw internal payload paths on the normal successful-replacement screen.
 
 Create a stable tool-generated lineage identifier when a release first enters
 replacement. Keep its version history and expected active path in owned

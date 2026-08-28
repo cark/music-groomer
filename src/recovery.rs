@@ -16,10 +16,13 @@ const MARKER_CONTENTS: &[u8] = b"music-groomer recovery store v1\n";
 const NAVIDROME_IGNORE: &str = ".ndignore";
 const INDEX: &str = "index.json";
 const LOCK: &str = ".lock";
-const INDEX_SCHEMA: u8 = 1;
+const INDEX_SCHEMA: u8 = 2;
 const RECEIPT_SCHEMA: u8 = 1;
 const VERSION_MARKER: &str = ".music-groomer-version";
 const VERSION_MARKER_SCHEMA: u8 = 1;
+const PAYLOADS: &str = "payloads";
+const MAX_HUMAN_COMPONENT_CHARS: usize = 64;
+const MAX_HUMAN_COMPONENT_UNITS: usize = 96;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -55,6 +58,7 @@ pub struct RetainedVersion {
     pub retained_at: u64,
     pub protected_until: u64,
     pub size_bytes: u64,
+    pub storage_path: PathBuf,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,6 +97,12 @@ pub struct RecoveryStore {
 pub struct RecoveryLock {
     _file: File,
     root: PathBuf,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PreparedRetainedPayload {
+    pub payload: PathBuf,
+    pub storage_path: PathBuf,
 }
 
 impl RecoveryStore {
@@ -138,7 +148,7 @@ impl RecoveryStore {
         let bytes = match fs::read(&path) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                let payload_root = self.root.join("lineages");
+                let payload_root = self.root.join(PAYLOADS);
                 if fs::symlink_metadata(&payload_root).is_ok() {
                     return Err(RecoveryError::Damaged(
                         path,
@@ -259,20 +269,9 @@ impl RecoveryStore {
         Ok(active)
     }
 
-    pub fn retained_payload_path(
-        &self,
-        lineage_id: &str,
-        version_id: &str,
-    ) -> Result<PathBuf, RecoveryError> {
-        validate_id(lineage_id)?;
-        validate_id(version_id)?;
-        Ok(self
-            .root
-            .join("lineages")
-            .join(lineage_id)
-            .join("versions")
-            .join(version_id)
-            .join("payload"))
+    pub fn retained_payload_path(&self, storage_path: &Path) -> Result<PathBuf, RecoveryError> {
+        validate_storage_path(storage_path)?;
+        Ok(self.root.join(storage_path).join("payload"))
     }
 
     pub fn prepare_retained_payload(
@@ -280,40 +279,79 @@ impl RecoveryStore {
         lock: &RecoveryLock,
         lineage_id: &str,
         version_id: &str,
-    ) -> Result<PathBuf, RecoveryError> {
+        display_label: &str,
+        retained_at: u64,
+        existing_lineage_storage: Option<&Path>,
+    ) -> Result<PreparedRetainedPayload, RecoveryError> {
         self.verify_lock(lock)?;
         self.verify_ownership()?;
         validate_id(lineage_id)?;
         validate_id(version_id)?;
-        let versions = self.root.join("lineages").join(lineage_id).join("versions");
-        ensure_directory_chain(&self.root, &versions)?;
-        let container = versions.join(version_id);
-        fs::create_dir(&container).map_err(|source| {
-            if source.kind() == std::io::ErrorKind::AlreadyExists {
-                RecoveryError::IdentityCollision(container.clone())
-            } else {
-                RecoveryError::Io(container.clone(), source)
+        let version_label = retained_timestamp_component(retained_at)?;
+        let payloads = self.root.join(PAYLOADS);
+        ensure_directory_chain(&self.root, &payloads)?;
+        let (lineage, allocated_lineage) = match existing_lineage_storage {
+            Some(relative) => {
+                validate_lineage_storage_path(relative)?;
+                let path = self.root.join(relative);
+                require_directory(&path)?;
+                (path, false)
             }
-        })?;
+            None => match allocate_human_directory(&payloads, display_label) {
+                Ok(path) => (path, true),
+                Err(error) => {
+                    let _ = fs::remove_dir(&payloads);
+                    return Err(error);
+                }
+            },
+        };
+        let container = match allocate_human_directory(&lineage, &version_label) {
+            Ok(path) => path,
+            Err(error) => {
+                if allocated_lineage {
+                    let _ = fs::remove_dir(&lineage);
+                }
+                let _ = fs::remove_dir(&payloads);
+                return Err(error);
+            }
+        };
         let marker = VersionMarker {
             schema: VERSION_MARKER_SCHEMA,
             lineage_id: lineage_id.to_owned(),
             version_id: version_id.to_owned(),
         };
-        write_json_new(&container.join(VERSION_MARKER), &marker)?;
-        Ok(container.join("payload"))
+        if let Err(error) = write_json_new(&container.join(VERSION_MARKER), &marker) {
+            let _ = fs::remove_dir(&container);
+            if allocated_lineage {
+                let _ = fs::remove_dir(&lineage);
+            }
+            let _ = fs::remove_dir(&payloads);
+            return Err(error);
+        }
+        let storage_path = container
+            .strip_prefix(&self.root)
+            .expect("allocated recovery container is inside its store")
+            .to_owned();
+        Ok(PreparedRetainedPayload {
+            payload: container.join("payload"),
+            storage_path,
+        })
     }
 
     pub fn verify_retained_payload(
         &self,
         lineage_id: &str,
         version_id: &str,
+        storage_path: &Path,
     ) -> Result<PathBuf, RecoveryError> {
-        let payload = self.retained_payload_path(lineage_id, version_id)?;
+        self.verify_ownership()?;
+        validate_id(lineage_id)?;
+        validate_id(version_id)?;
+        let payload = self.retained_payload_path(storage_path)?;
         let container = payload
             .parent()
             .expect("retained payload always has a container");
-        require_directory(container)?;
+        verify_existing_directory_chain(&self.root, container)?;
         let marker_path = container.join(VERSION_MARKER);
         let marker: VersionMarker = read_regular_json(&marker_path)?;
         if marker.schema != VERSION_MARKER_SCHEMA
@@ -326,8 +364,13 @@ impl RecoveryStore {
         Ok(payload)
     }
 
-    pub fn retained_size(&self, lineage_id: &str, version_id: &str) -> Result<u64, RecoveryError> {
-        let payload = self.verify_retained_payload(lineage_id, version_id)?;
+    pub fn retained_size(
+        &self,
+        lineage_id: &str,
+        version_id: &str,
+        storage_path: &Path,
+    ) -> Result<u64, RecoveryError> {
+        let payload = self.verify_retained_payload(lineage_id, version_id, storage_path)?;
         strict_tree_size(&payload)
     }
 
@@ -336,15 +379,20 @@ impl RecoveryStore {
         lock: &RecoveryLock,
         lineage_id: &str,
         version_id: &str,
+        storage_path: &Path,
     ) -> Result<(), RecoveryError> {
         self.verify_lock(lock)?;
-        let payload = self.retained_payload_path(lineage_id, version_id)?;
-        if fs::symlink_metadata(&payload).is_ok() {
-            return Err(RecoveryError::UnsafePath(payload));
-        }
+        self.verify_ownership()?;
+        validate_id(lineage_id)?;
+        validate_id(version_id)?;
+        let payload = self.retained_payload_path(storage_path)?;
         let container = payload
             .parent()
             .expect("retained payload always has a container");
+        verify_existing_directory_chain(&self.root, container)?;
+        if fs::symlink_metadata(&payload).is_ok() {
+            return Err(RecoveryError::UnsafePath(payload));
+        }
         let marker_path = container.join(VERSION_MARKER);
         let marker: VersionMarker = read_regular_json(&marker_path)?;
         if marker.schema != VERSION_MARKER_SCHEMA
@@ -357,13 +405,10 @@ impl RecoveryStore {
             .map_err(|source| RecoveryError::Io(marker_path.clone(), source))?;
         fs::remove_dir(container)
             .map_err(|source| RecoveryError::Io(container.to_owned(), source))?;
-        if let Some(versions) = container.parent() {
-            let _ = fs::remove_dir(versions);
-            if let Some(lineage) = versions.parent() {
-                let _ = fs::remove_dir(lineage);
-                if let Some(lineages) = lineage.parent() {
-                    let _ = fs::remove_dir(lineages);
-                }
+        if let Some(lineage) = container.parent() {
+            let _ = fs::remove_dir(lineage);
+            if let Some(payloads) = lineage.parent() {
+                let _ = fs::remove_dir(payloads);
             }
         }
         Ok(())
@@ -504,6 +549,7 @@ fn validate_index(index: &RecoveryIndex) -> Result<(), String> {
     let mut lineage_ids = BTreeSet::new();
     let mut version_ids = BTreeSet::new();
     let mut active_paths = BTreeSet::new();
+    let mut storage_paths = BTreeSet::new();
     for lineage in &index.lineages {
         validate_lineage(lineage).map_err(|error| error.to_string())?;
         if !lineage_ids.insert(&lineage.lineage_id) {
@@ -531,6 +577,12 @@ fn validate_index(index: &RecoveryIndex) -> Result<(), String> {
                     version.version_id
                 ));
             }
+            if !storage_paths.insert(&version.storage_path) {
+                return Err(format!(
+                    "duplicate recovery storage path {}",
+                    version.storage_path.display()
+                ));
+            }
         }
     }
     Ok(())
@@ -543,6 +595,7 @@ fn validate_lineage(lineage: &ReleaseLineage) -> Result<(), RecoveryError> {
     for version in &lineage.retained_versions {
         validate_id(&version.version_id)?;
         validate_relative_path(&version.historical_path)?;
+        validate_storage_path(&version.storage_path)?;
         if version.display_label.trim().is_empty() {
             return Err(RecoveryError::InvalidMetadata(
                 "retained version display label is empty".into(),
@@ -582,6 +635,32 @@ fn validate_relative_path(path: &Path) -> Result<(), RecoveryError> {
         .components()
         .next()
         .is_some_and(|component| component.as_os_str() == RECOVERY_DIRECTORY)
+    {
+        return Err(RecoveryError::UnsafePath(path.to_owned()));
+    }
+    Ok(())
+}
+
+fn validate_lineage_storage_path(path: &Path) -> Result<(), RecoveryError> {
+    let components = path.components().collect::<Vec<_>>();
+    if components.len() != 2
+        || components[0].as_os_str() != PAYLOADS
+        || components
+            .iter()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err(RecoveryError::UnsafePath(path.to_owned()));
+    }
+    Ok(())
+}
+
+fn validate_storage_path(path: &Path) -> Result<(), RecoveryError> {
+    let components = path.components().collect::<Vec<_>>();
+    if components.len() != 3
+        || components[0].as_os_str() != PAYLOADS
+        || components
+            .iter()
+            .any(|component| !matches!(component, Component::Normal(_)))
     {
         return Err(RecoveryError::UnsafePath(path.to_owned()));
     }
@@ -639,6 +718,150 @@ fn ensure_directory_chain(root: &Path, target: &Path) -> Result<(), RecoveryErro
         }
     }
     Ok(())
+}
+
+fn verify_existing_directory_chain(root: &Path, target: &Path) -> Result<(), RecoveryError> {
+    let relative = target
+        .strip_prefix(root)
+        .map_err(|_| RecoveryError::UnsafePath(target.to_owned()))?;
+    require_directory(root)?;
+    let mut current = root.to_owned();
+    for component in relative.components() {
+        if !matches!(component, Component::Normal(_)) {
+            return Err(RecoveryError::UnsafePath(target.to_owned()));
+        }
+        current.push(component);
+        require_directory(&current)?;
+    }
+    Ok(())
+}
+
+fn allocate_human_directory(parent: &Path, requested: &str) -> Result<PathBuf, RecoveryError> {
+    require_directory(parent)?;
+    let mut occupied = BTreeSet::new();
+    for entry in
+        fs::read_dir(parent).map_err(|source| RecoveryError::Io(parent.to_owned(), source))?
+    {
+        let entry = entry.map_err(|source| RecoveryError::Io(parent.to_owned(), source))?;
+        occupied.insert(entry.file_name().to_string_lossy().to_lowercase());
+    }
+    for number in 1..=10_000 {
+        let suffix = (number > 1).then(|| format!(" ({number})"));
+        let component = bounded_human_component(requested, suffix.as_deref());
+        if occupied.contains(&component.to_lowercase()) {
+            continue;
+        }
+        let path = parent.join(&component);
+        match fs::create_dir(&path) {
+            Ok(()) => return Ok(path),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                occupied.insert(component.to_lowercase());
+            }
+            Err(source) => return Err(RecoveryError::Io(path, source)),
+        }
+    }
+    Err(RecoveryError::CannotAllocateHumanPath(parent.to_owned()))
+}
+
+fn bounded_human_component(value: &str, suffix: Option<&str>) -> String {
+    let mut normalized = String::with_capacity(value.len());
+    let mut spacing = false;
+    for character in value.chars() {
+        let invalid = character.is_control()
+            || matches!(
+                character,
+                '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'
+            );
+        if invalid || character.is_whitespace() {
+            spacing = true;
+        } else {
+            if spacing && !normalized.is_empty() {
+                normalized.push(' ');
+            }
+            spacing = false;
+            normalized.push(character);
+        }
+    }
+    let mut normalized = normalized.trim_matches([' ', '.']).to_owned();
+    if normalized.is_empty() || normalized == "." || normalized == ".." {
+        normalized = "release".into();
+    }
+    if is_windows_reserved(&normalized) {
+        normalized.insert(0, '_');
+    }
+    let suffix = suffix.unwrap_or("");
+    let suffix_chars = suffix.chars().count();
+    let suffix_bytes = suffix.len();
+    let suffix_units = suffix.encode_utf16().count();
+    let mut bounded = String::new();
+    for character in normalized.chars() {
+        if bounded.chars().count() + 1 + suffix_chars > MAX_HUMAN_COMPONENT_CHARS
+            || bounded.len() + character.len_utf8() + suffix_bytes > MAX_HUMAN_COMPONENT_UNITS
+            || bounded.encode_utf16().count() + character.len_utf16() + suffix_units
+                > MAX_HUMAN_COMPONENT_UNITS
+        {
+            break;
+        }
+        bounded.push(character);
+    }
+    let bounded = bounded.trim_end_matches([' ', '.']);
+    format!("{bounded}{suffix}")
+}
+
+fn is_windows_reserved(value: &str) -> bool {
+    let stem = value
+        .split('.')
+        .next()
+        .unwrap_or(value)
+        .to_ascii_uppercase();
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || stem
+            .strip_prefix("COM")
+            .or_else(|| stem.strip_prefix("LPT"))
+            .is_some_and(|number| {
+                matches!(number, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
+            })
+}
+
+pub fn retained_time_label(timestamp: u64) -> Result<String, RecoveryError> {
+    let seconds = i64::try_from(timestamp).map_err(|_| {
+        RecoveryError::InvalidMetadata("retention timestamp is outside the supported range".into())
+    })?;
+    let days = seconds.div_euclid(86_400);
+    let day_seconds = seconds.rem_euclid(86_400);
+    let (year, month, day) = civil_date(days);
+    let hour = day_seconds / 3_600;
+    let minute = (day_seconds % 3_600) / 60;
+    let second = day_seconds % 60;
+    Ok(format!(
+        "{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02} UTC"
+    ))
+}
+
+fn retained_timestamp_component(timestamp: u64) -> Result<String, RecoveryError> {
+    Ok(format!(
+        "retained {}",
+        retained_time_label(timestamp)?.replace(':', "-")
+    ))
+}
+
+fn civil_date(days_since_epoch: i64) -> (i64, i64, i64) {
+    let shifted = days_since_epoch + 719_468;
+    let era = if shifted >= 0 {
+        shifted
+    } else {
+        shifted - 146_096
+    } / 146_097;
+    let day_of_era = shifted - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let mut year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
+    year += i64::from(month <= 2);
+    (year, month, day)
 }
 
 fn strict_tree_size(path: &Path) -> Result<u64, RecoveryError> {
@@ -724,6 +947,7 @@ pub enum RecoveryError {
     UnsafePath(PathBuf),
     IdentityMismatch(PathBuf),
     IdentityCollision(PathBuf),
+    CannotAllocateHumanPath(PathBuf),
     InvalidMetadata(String),
     Damaged(PathBuf, String),
     Io(PathBuf, std::io::Error),
@@ -754,6 +978,11 @@ impl fmt::Display for RecoveryError {
             Self::IdentityCollision(path) => write!(
                 formatter,
                 "recovery identity already exists at {}",
+                path.display()
+            ),
+            Self::CannotAllocateHumanPath(path) => write!(
+                formatter,
+                "cannot allocate a unique recovery directory under {}",
                 path.display()
             ),
             Self::InvalidMetadata(cause) => write!(formatter, "invalid recovery metadata: {cause}"),
@@ -825,7 +1054,7 @@ mod tests {
         let library = temporary.path().join("library");
         fs::create_dir(&library).unwrap();
         let store = RecoveryStore::create_or_open(&library).unwrap();
-        fs::create_dir(store.root().join("lineages")).unwrap();
+        fs::create_dir(store.root().join(PAYLOADS)).unwrap();
 
         let error = store.load_index().unwrap_err();
 
@@ -853,6 +1082,7 @@ mod tests {
                 retained_at: 100,
                 protected_until: 200,
                 size_bytes: 123,
+                storage_path: PathBuf::from("payloads/Artist Album/retained 1970-01-01"),
             }],
         };
         let index = RecoveryIndex {
@@ -883,19 +1113,88 @@ mod tests {
         let lock = store.lock().unwrap();
         let lineage_id = new_lineage_id();
         let version_id = new_version_id();
-        let payload = store
-            .prepare_retained_payload(&lock, &lineage_id, &version_id)
+        let prepared = store
+            .prepare_retained_payload(&lock, &lineage_id, &version_id, "Artist — Album", 100, None)
             .unwrap();
-        fs::create_dir(&payload).unwrap();
-        fs::write(payload.join("track.flac"), b"audio").unwrap();
+        fs::create_dir(&prepared.payload).unwrap();
+        fs::write(prepared.payload.join("track.flac"), b"audio").unwrap();
 
-        assert_eq!(store.retained_size(&lineage_id, &version_id).unwrap(), 5);
+        assert_eq!(
+            store
+                .retained_size(&lineage_id, &version_id, &prepared.storage_path)
+                .unwrap(),
+            5
+        );
 
-        fs::remove_dir_all(&payload).unwrap();
+        fs::remove_dir_all(&prepared.payload).unwrap();
         store
-            .discard_prepared_payload(&lock, &lineage_id, &version_id)
+            .discard_prepared_payload(&lock, &lineage_id, &version_id, &prepared.storage_path)
             .unwrap();
-        assert!(!payload.parent().unwrap().exists());
+        assert!(!prepared.payload.parent().unwrap().exists());
+    }
+
+    #[test]
+    fn retained_payload_paths_are_human_bounded_and_collision_safe() {
+        let temporary = TempDir::new().unwrap();
+        let library = temporary.path().join("library");
+        fs::create_dir(&library).unwrap();
+        let store = RecoveryStore::create_or_open(&library).unwrap();
+        let lock = store.lock().unwrap();
+        let first = store
+            .prepare_retained_payload(
+                &lock,
+                &new_lineage_id(),
+                &new_version_id(),
+                "Artist: <Album>?",
+                1_787_953_330,
+                None,
+            )
+            .unwrap();
+        let lineage_storage = first.storage_path.parent().unwrap().to_owned();
+        let second = store
+            .prepare_retained_payload(
+                &lock,
+                &new_lineage_id(),
+                &new_version_id(),
+                "ignored for an existing lineage",
+                1_787_953_330,
+                Some(&lineage_storage),
+            )
+            .unwrap();
+
+        assert_eq!(
+            first.storage_path,
+            PathBuf::from("payloads/Artist Album/retained 2026-08-28 21-42-10 UTC")
+        );
+        assert_eq!(
+            second.storage_path,
+            PathBuf::from("payloads/Artist Album/retained 2026-08-28 21-42-10 UTC (2)")
+        );
+        assert_eq!(first.storage_path.components().count(), 3);
+    }
+
+    #[test]
+    fn human_components_cover_windows_names_unicode_and_limits() {
+        assert_eq!(bounded_human_component("CON.txt", None), "_CON.txt");
+        assert_eq!(
+            bounded_human_component("  <bad>|name...  ", None),
+            "bad name"
+        );
+        assert_eq!(bounded_human_component("***", None), "release");
+        let bounded = bounded_human_component(&"é".repeat(200), Some(" (9999)"));
+        assert!(bounded.chars().count() <= MAX_HUMAN_COMPONENT_CHARS);
+        assert!(bounded.len() <= MAX_HUMAN_COMPONENT_UNITS);
+        assert!(bounded.encode_utf16().count() <= MAX_HUMAN_COMPONENT_UNITS);
+        assert!(bounded.ends_with(" (9999)"));
+    }
+
+    #[test]
+    fn retention_times_have_stable_utc_labels() {
+        assert_eq!(retained_time_label(0).unwrap(), "1970-01-01 00:00:00 UTC");
+        assert_eq!(
+            retained_time_label(1_787_953_330).unwrap(),
+            "2026-08-28 21:42:10 UTC"
+        );
     }
 
     #[test]
@@ -907,26 +1206,61 @@ mod tests {
         let lock = store.lock().unwrap();
         let lineage_id = new_lineage_id();
         let version_id = new_version_id();
-        let payload = store
-            .prepare_retained_payload(&lock, &lineage_id, &version_id)
+        let prepared = store
+            .prepare_retained_payload(&lock, &lineage_id, &version_id, "Artist — Album", 100, None)
             .unwrap();
-        fs::create_dir(&payload).unwrap();
+        fs::create_dir(&prepared.payload).unwrap();
 
         #[cfg(unix)]
-        std::os::unix::fs::symlink("outside", payload.join("unsafe")).unwrap();
+        std::os::unix::fs::symlink("outside", prepared.payload.join("unsafe")).unwrap();
         #[cfg(windows)]
-        fs::write(payload.join("ordinary"), b"safe fallback").unwrap();
+        fs::write(prepared.payload.join("ordinary"), b"safe fallback").unwrap();
 
         #[cfg(unix)]
         assert!(matches!(
-            store.retained_size(&lineage_id, &version_id),
+            store.retained_size(&lineage_id, &version_id, &prepared.storage_path),
             Err(RecoveryError::UnsafePath(_))
         ));
         #[cfg(windows)]
         assert_eq!(
-            store.retained_size(&lineage_id, &version_id).unwrap(),
+            store
+                .retained_size(&lineage_id, &version_id, &prepared.storage_path)
+                .unwrap(),
             b"safe fallback".len() as u64
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn retained_payload_operations_reject_a_symlinked_storage_ancestor() {
+        let temporary = TempDir::new().unwrap();
+        let library = temporary.path().join("library");
+        fs::create_dir(&library).unwrap();
+        let store = RecoveryStore::create_or_open(&library).unwrap();
+        let lock = store.lock().unwrap();
+        let lineage_id = new_lineage_id();
+        let version_id = new_version_id();
+        let prepared = store
+            .prepare_retained_payload(&lock, &lineage_id, &version_id, "Artist — Album", 100, None)
+            .unwrap();
+        let payloads = store.root().join(PAYLOADS);
+        let external = temporary.path().join("external-payloads");
+        fs::rename(&payloads, &external).unwrap();
+        std::os::unix::fs::symlink(&external, &payloads).unwrap();
+
+        assert!(matches!(
+            store.verify_retained_payload(&lineage_id, &version_id, &prepared.storage_path),
+            Err(RecoveryError::NotOwned(path)) if path == payloads
+        ));
+        assert!(matches!(
+            store.discard_prepared_payload(
+                &lock,
+                &lineage_id,
+                &version_id,
+                &prepared.storage_path
+            ),
+            Err(RecoveryError::NotOwned(path)) if path == payloads
+        ));
     }
 
     #[test]
@@ -990,6 +1324,7 @@ mod tests {
                     retained_at: 100,
                     protected_until: 200,
                     size_bytes: 123,
+                    storage_path: PathBuf::from("payloads/Artist Album/retained 1970-01-01"),
                 }],
             }],
         };
@@ -1088,6 +1423,7 @@ mod tests {
             retained_at,
             protected_until,
             size_bytes,
+            storage_path: PathBuf::from(format!("payloads/Artist Album/{label}")),
         }
     }
 }

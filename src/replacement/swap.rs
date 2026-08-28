@@ -29,6 +29,9 @@ pub struct ReplacementSwapReport {
     pub active_version_id: String,
     pub retained_version_id: String,
     pub retained_size_bytes: u64,
+    pub display_label: String,
+    pub retained_at: u64,
+    pub protected_until: u64,
 }
 
 pub fn swap_prepared(swap: &ReplacementSwap) -> Result<ReplacementSwapReport, SwapError> {
@@ -54,11 +57,15 @@ fn swap_prepared_with(
     refuse_index_destination_collision(&index, identity.lineage_index, &swap.context)?;
 
     let active_version_id = new_version_id();
-    let retained_path = store.prepare_retained_payload(
+    let prepared_retained = store.prepare_retained_payload(
         &lock,
         &identity.lineage_id,
         &identity.retained_version_id,
+        &swap.display_label,
+        swap.retained_at,
+        identity.lineage_storage.as_deref(),
     )?;
+    let retained_path = prepared_retained.payload.clone();
     let created_parents =
         match create_parents(&swap.context.library_root, &swap.context.destination) {
             Ok(paths) => paths,
@@ -70,6 +77,7 @@ fn swap_prepared_with(
                     &lock,
                     &identity.lineage_id,
                     &identity.retained_version_id,
+                    &prepared_retained.storage_path,
                 ));
             }
         };
@@ -86,6 +94,7 @@ fn swap_prepared_with(
             &lock,
             &identity.lineage_id,
             &identity.retained_version_id,
+            &prepared_retained.storage_path,
         ));
     }
 
@@ -97,6 +106,7 @@ fn swap_prepared_with(
             &lock,
             &identity.lineage_id,
             &identity.retained_version_id,
+            &prepared_retained.storage_path,
         ));
     }
 
@@ -110,25 +120,30 @@ fn swap_prepared_with(
             &store,
             &lock,
             &identity,
+            &prepared_retained.storage_path,
         ));
     }
 
-    let retained_size_bytes =
-        match store.retained_size(&identity.lineage_id, &identity.retained_version_id) {
-            Ok(size) => size,
-            Err(error) => {
-                return Err(rollback(
-                    error.into(),
-                    None,
-                    swap,
-                    &retained_path,
-                    created_parents,
-                    &store,
-                    &lock,
-                    &identity,
-                ));
-            }
-        };
+    let retained_size_bytes = match store.retained_size(
+        &identity.lineage_id,
+        &identity.retained_version_id,
+        &prepared_retained.storage_path,
+    ) {
+        Ok(size) => size,
+        Err(error) => {
+            return Err(rollback(
+                error.into(),
+                None,
+                swap,
+                &retained_path,
+                created_parents,
+                &store,
+                &lock,
+                &identity,
+                &prepared_retained.storage_path,
+            ));
+        }
+    };
 
     if let Err(error) = exclusive_rename(&swap.prepared_replacement, &swap.context.destination) {
         return Err(rollback(
@@ -140,6 +155,7 @@ fn swap_prepared_with(
             &store,
             &lock,
             &identity,
+            &prepared_retained.storage_path,
         ));
     }
 
@@ -153,6 +169,7 @@ fn swap_prepared_with(
             &store,
             &lock,
             &identity,
+            &prepared_retained.storage_path,
         ));
     }
 
@@ -162,6 +179,7 @@ fn swap_prepared_with(
         swap,
         &active_version_id,
         retained_size_bytes,
+        prepared_retained.storage_path.clone(),
     );
     if let Err(cause) = checkpoint(SwapPoint::BeforeIndexCommit) {
         return Err(rollback(
@@ -173,6 +191,7 @@ fn swap_prepared_with(
             &store,
             &lock,
             &identity,
+            &prepared_retained.storage_path,
         ));
     }
     if let Err(error) = store.save_index(&lock, &index) {
@@ -185,6 +204,7 @@ fn swap_prepared_with(
             &store,
             &lock,
             &identity,
+            &prepared_retained.storage_path,
         ));
     }
 
@@ -195,6 +215,9 @@ fn swap_prepared_with(
         active_version_id,
         retained_version_id: identity.retained_version_id,
         retained_size_bytes,
+        display_label: swap.display_label.clone(),
+        retained_at: swap.retained_at,
+        protected_until: swap.protected_until,
     })
 }
 
@@ -202,6 +225,7 @@ struct Identity {
     lineage_index: Option<usize>,
     lineage_id: String,
     retained_version_id: String,
+    lineage_storage: Option<PathBuf>,
 }
 
 fn resolve_identity(
@@ -223,6 +247,7 @@ fn resolve_identity(
                 lineage_index: None,
                 lineage_id: new_lineage_id(),
                 retained_version_id: new_version_id(),
+                lineage_storage: None,
             })
         }
         Err(source) => Err(RecoveryError::Io(receipt_path, source).into()),
@@ -244,6 +269,11 @@ fn resolve_identity(
                 lineage_index: Some(lineage_index),
                 lineage_id: receipt.lineage_id,
                 retained_version_id: receipt.version_id,
+                lineage_storage: lineage
+                    .retained_versions
+                    .first()
+                    .and_then(|version| version.storage_path.parent())
+                    .map(Path::to_owned),
             })
         }
     }
@@ -277,6 +307,7 @@ fn update_index(
     swap: &ReplacementSwap,
     active_version_id: &str,
     retained_size_bytes: u64,
+    storage_path: PathBuf,
 ) {
     let retained = RetainedVersion {
         version_id: identity.retained_version_id.clone(),
@@ -285,6 +316,7 @@ fn update_index(
         retained_at: swap.retained_at,
         protected_until: swap.protected_until,
         size_bytes: retained_size_bytes,
+        storage_path,
     };
     let expected_active_path = swap
         .context
@@ -317,6 +349,7 @@ fn rollback(
     store: &RecoveryStore,
     lock: &crate::recovery::RecoveryLock,
     identity: &Identity,
+    storage_path: &Path,
 ) -> SwapError {
     let mut failures = Vec::new();
     if let Some(active) = activated
@@ -337,6 +370,7 @@ fn rollback(
             lock,
             &identity.lineage_id,
             &identity.retained_version_id,
+            storage_path,
         )
     {
         failures.push(format!("cannot remove empty recovery container: {error}"));
@@ -358,9 +392,10 @@ fn cleanup_before_first_move(
     lock: &crate::recovery::RecoveryLock,
     lineage_id: &str,
     version_id: &str,
+    storage_path: &Path,
 ) -> SwapError {
     remove_empty_parents(created_parents);
-    match store.discard_prepared_payload(lock, lineage_id, version_id) {
+    match store.discard_prepared_payload(lock, lineage_id, version_id, storage_path) {
         Ok(()) => original,
         Err(error) => SwapError::Rollback {
             original: Box::new(original),
@@ -579,6 +614,23 @@ mod tests {
         let second = swap_prepared(&fixture.swap).unwrap();
 
         assert_eq!(second.lineage_id, first.lineage_id);
+        assert_eq!(
+            first.retained_path.parent().unwrap().parent(),
+            second.retained_path.parent().unwrap().parent()
+        );
+        assert_ne!(first.retained_path, second.retained_path);
+        assert!(
+            first
+                .retained_path
+                .to_string_lossy()
+                .contains("Artist — Old Album")
+        );
+        assert!(
+            !first
+                .retained_path
+                .to_string_lossy()
+                .contains(&first.lineage_id)
+        );
         let store = RecoveryStore::open_existing(&fixture.library)
             .unwrap()
             .unwrap();
