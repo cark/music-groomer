@@ -170,9 +170,8 @@ cleared.
 
 The executable uses Clap only as its command-line boundary. Users get
 conventional `-h`/`--help`, command-specific help, `-V`/`--version`, validation,
-and automatic terminal-aware help/error styling. The primary command remains
-`music-groomer SOURCE`; the implementation-facing `demo` command is hidden from
-normal help.
+and automatic terminal-aware help/error styling. The primary command is
+`music-groomer SOURCE`; `cache` is the small maintenance subcommand.
 
 ## Apply transaction
 
@@ -180,8 +179,10 @@ normal help.
 2. Check available space and create staging in the operating system's temporary
    directory.
 3. Copy audio files; never open source files for writing.
-4. Copy ordinary ancillary files and directories without following symbolic
-   links; reject unusual filesystem objects.
+4. Copy ordinary ancillary file contents and directories without following
+   symbolic links; reject unusual filesystem objects. Create result attributes
+   normally under the invoking user's umask rather than inheriting source
+   permissions, ownership, timestamps, ACLs, or extended attributes.
 5. Modify only staged copies and write the sidecar.
 6. Re-read and validate the planned result, including preservation of embedded
    pictures.

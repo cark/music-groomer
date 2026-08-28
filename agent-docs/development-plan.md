@@ -26,8 +26,10 @@ This page tracks implementation. Durable product reasoning belongs in the
   verified on 2026-08-28. This is maintenance of the accepted milestone rather
   than a new milestone closure.
 - Milestone 4 alignment and implementation were authorized on 2026-08-28. The
-  safe Apply vertical slice, offline tests, and first deliberate review are
-  locally complete; user exercise and milestone acceptance remain pending.
+  user completed an explicitly approved Evolution Apply into the live library,
+  re-inspected its ten-track result, and approved the experience. The final
+  review correction set is aligned and under implementation; acceptance still
+  requires its verification and explicit permission.
 
 ## Working rules
 
@@ -74,19 +76,8 @@ Acceptance:
   standalone layouts have focused tests.
 - User reviews the runnable fake-data interaction before milestone 2.
 
-Review the interaction without reading music, writing files, saving settings,
-or contacting providers:
-
-```text
-nix develop -c cargo run -- demo
-```
-
-The session offers an ordinary album, an ambiguous collaboration, a matched
-single, and an unmatched standalone track. Its Apply and configuration-save
-actions are explicitly simulated and write nothing. A destination supplied by
-the user is checked only for existence, directory type, and final-path
-collision. Named scenarios are also available for focused testing, but are not
-part of the intended end-user workflow.
+The temporary fake-data demo used for this milestone was removed after the real
+guided command and its focused tests superseded it.
 
 ## Milestone 2: file inspection and preservation
 
@@ -255,7 +246,8 @@ cache fallbacks.
 
 ## Milestone 4: safe apply and validation
 
-Status: implemented and under review; not yet accepted
+Status: implemented, exercised, and undergoing final review corrections; not
+yet accepted
 
 Apply a confirmed immutable plan to temporary staging, validate it, and publish
 the separate result without overwriting collisions.
@@ -277,17 +269,11 @@ Acceptance:
   explicitly ignored live provider smoke tests stay out of CI, with no cache,
   artifact, coverage, packaging, or release machinery.
 - Full format, core, CLI, provider-fake, filesystem, and apply suites pass.
-
-## Milestone 5: real candidate exercise
-
-Status: pending milestone 4 and separate Apply approval
-
-The user supplied the Ten Years After - Evolution path and approved read-only
-access for the completed milestone 3a terminal exercise. After milestone 4 is
-accepted, present a fresh full preview against that source. The earlier read
-approval does not authorize Apply: request separate explicit approval and use
-only the configured destination root. Never modify the source, and do not write
-to the live library without that separate approval.
+- The user separately authorized and completed the Ten Years After - Evolution
+  Apply into the live library on 2026-08-28. Publication passed all five stages;
+  reinspection found ten numbered FLAC tracks, Ten Years After as album artist,
+  the 2008 date, one disc, and the selected canonical sidecar. The source was
+  untouched. This is Milestone 4 evidence, not a separate Milestone 5.
 
 ## Standard verification
 

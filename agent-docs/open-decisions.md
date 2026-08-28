@@ -25,5 +25,5 @@ decision page.
 
 ## Open questions
 
-Milestone 4's final review correction set is aligned and recorded on the linked
-review page. Implementation still requires explicit authorization.
+No product question is currently open. Milestone 4's aligned final-review
+correction set is authorized and under implementation.

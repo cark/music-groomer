@@ -85,8 +85,12 @@ the test harness remains responsible for its temporary directory's lifecycle.
 Use Clap at the executable boundary for familiar help, version, subcommand,
 validation, and error behavior. Keep Clap types out of the core workflow.
 `music-groomer SOURCE` remains the primary guided form; `cache` is a visible
-maintenance subcommand whose default action is read-only status. Keep the
-milestone-only `demo` command available but hidden from ordinary help.
+maintenance subcommand whose default action is read-only status. The temporary
+milestone demo was removed once the real guided workflow superseded it.
+
+For `~` expansion, a non-empty `HOME` wins on every platform so intentional
+custom homes are respected, including on Windows. Use the platform profile
+directory from `directories::BaseDirs` only when `HOME` is absent or empty.
 
 Build every human multi-action prompt from the terminal action catalogue.
 Actions own ordered key preferences and stable word aliases; menus own ordered

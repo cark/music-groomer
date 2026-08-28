@@ -11,10 +11,10 @@ Product and technical direction is aligned through milestone 4. Milestones 1,
 The final milestone 3b loose-library-track exercise confirmed the corrected
 single discovery, animated provider feedback, and phase spacing on 2026-08-28.
 The accepted post-milestone-3 review corrections are implemented and verified.
-Milestone 4 is implemented in local commits and has passed its first deliberate
-code review and offline suite. It still requires the user's early terminal
-exercise, any resulting corrections, final acceptance evidence, and explicit
-permission before closure or push.
+The user completed the explicitly approved Evolution Apply and re-inspected the
+published ten-track result. Milestone 4's deliberate final review is complete;
+its aligned correction set is under implementation and still requires full
+verification plus explicit acceptance and push permission.
 
 ## Task routing
 
