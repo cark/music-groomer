@@ -10,7 +10,7 @@ pub use audio::{
     AudioPreservationSnapshot, AudioReadError, LoftyAudioReader, PlannedTags, PreservedPicture,
     PreservedTagItem, PreservedTagValue,
 };
-pub use filesystem::{InspectionError, SourceInspector};
+pub use filesystem::{InspectionError, InspectionProgress, SourceInspector};
 pub use model::{
     AncillaryFile, ArtworkCandidate, ArtworkFormat, AudioFormat, AudioProperties, AudioTags,
     InspectedAudio, InspectionNotice, NoticeKind, NoticeSeverity, SourceInspection,

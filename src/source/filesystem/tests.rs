@@ -78,6 +78,41 @@ fn selecting_a_loose_file_excludes_siblings() {
 }
 
 #[test]
+fn inspection_progress_reports_each_ordinary_file_in_processing_order() {
+    let temporary = TempDir::new().expect("temporary directory should be created");
+    fs::copy(fixture("seed.flac"), temporary.path().join("b.flac")).unwrap();
+    fs::write(temporary.path().join("a.log"), "kept").unwrap();
+    let mut progress = RecordedProgress::default();
+
+    SourceInspector::default()
+        .inspect_with_progress(temporary.path(), &mut progress)
+        .expect("directory should be inspectable");
+
+    assert_eq!(
+        progress
+            .files
+            .iter()
+            .map(|(path, number, _)| (path.file_name().unwrap().to_owned(), *number))
+            .collect::<Vec<_>>(),
+        [("a.log".into(), 1), ("b.flac".into(), 2)]
+    );
+    assert!(progress.files.iter().all(|(_, _, bytes)| *bytes > 0));
+}
+
+#[test]
+fn inspection_progress_failure_stops_with_its_cause() {
+    let temporary = TempDir::new().expect("temporary directory should be created");
+    fs::copy(fixture("seed.flac"), temporary.path().join("track.flac")).unwrap();
+    let mut progress = FailingProgress;
+
+    let error = SourceInspector::default()
+        .inspect_with_progress(temporary.path(), &mut progress)
+        .unwrap_err();
+
+    assert!(matches!(error, InspectionError::Progress(message) if message == "display closed"));
+}
+
+#[test]
 fn clearly_different_album_tags_block_accidental_batch_processing() {
     let temporary = TempDir::new().expect("temporary directory should be created");
     let first = temporary.path().join("one.flac");
@@ -287,6 +322,26 @@ fn special_files_block_with_their_path() {
 
 fn has_notice(inspection: &SourceInspection, kind: NoticeKind) -> bool {
     inspection.notices.iter().any(|notice| notice.kind == kind)
+}
+
+#[derive(Default)]
+struct RecordedProgress {
+    files: Vec<(PathBuf, usize, u64)>,
+}
+
+impl InspectionProgress for RecordedProgress {
+    fn inspecting_file(&mut self, path: &Path, number: usize, bytes: u64) -> Result<(), String> {
+        self.files.push((path.to_owned(), number, bytes));
+        Ok(())
+    }
+}
+
+struct FailingProgress;
+
+impl InspectionProgress for FailingProgress {
+    fn inspecting_file(&mut self, _path: &Path, _number: usize, _bytes: u64) -> Result<(), String> {
+        Err("display closed".into())
+    }
 }
 
 fn write_image(path: &Path, format: image::ImageFormat) {

@@ -97,6 +97,8 @@ pub struct LoftyAudioReader;
 
 impl LoftyAudioReader {
     pub(super) fn probe(&self, path: &Path) -> Result<AudioProbe, AudioReadError> {
+        let span = tracing::trace_span!("probe_audio", path = %path.display());
+        let _entered = span.enter();
         let probe = Probe::open(path)
             .map_err(|error| AudioReadError::Parse(error.to_string()))?
             .guess_file_type()

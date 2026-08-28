@@ -15,6 +15,7 @@ pub enum InspectionError {
         error: std::io::Error,
     },
     InvalidSource(PathBuf),
+    Progress(String),
 }
 
 impl fmt::Display for InspectionError {
@@ -28,6 +29,9 @@ impl fmt::Display for InspectionError {
                 "source {} must be an ordinary file or directory, not a symlink or special object",
                 path.display()
             ),
+            Self::Progress(error) => {
+                write!(formatter, "cannot report inspection progress: {error}")
+            }
         }
     }
 }
@@ -39,8 +43,28 @@ pub struct SourceInspector {
     audio: LoftyAudioReader,
 }
 
+pub trait InspectionProgress {
+    fn inspecting_file(&mut self, path: &Path, number: usize, bytes: u64) -> Result<(), String>;
+}
+
+impl InspectionProgress for () {
+    fn inspecting_file(&mut self, _path: &Path, _number: usize, _bytes: u64) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 impl SourceInspector {
     pub fn inspect(&self, source: &Path) -> Result<SourceInspection, InspectionError> {
+        self.inspect_with_progress(source, &mut ())
+    }
+
+    pub fn inspect_with_progress(
+        &self,
+        source: &Path,
+        progress: &mut dyn InspectionProgress,
+    ) -> Result<SourceInspection, InspectionError> {
+        let span = tracing::info_span!("inspect_source", path = %source.display());
+        let _entered = span.enter();
         let metadata =
             fs::symlink_metadata(source).map_err(|error| InspectionError::SourceMetadata {
                 path: source.to_owned(),
@@ -67,10 +91,23 @@ impl SourceInspector {
             notices: Vec::new(),
             snapshot: Vec::new(),
         };
+        let mut inspected_files = 0;
         if kind == SourceKind::LooseFile {
-            self.inspect_file(source, root, &mut inspection);
+            self.inspect_file(
+                source,
+                root,
+                &mut inspection,
+                progress,
+                &mut inspected_files,
+            )?;
         } else {
-            self.inspect_directory(source, root, &mut inspection);
+            self.inspect_directory(
+                source,
+                root,
+                &mut inspection,
+                progress,
+                &mut inspected_files,
+            )?;
         }
         inspection.audio.sort_by(|left, right| {
             left.relative_path
@@ -82,8 +119,12 @@ impl SourceInspector {
                 .as_os_str()
                 .cmp(right.relative_path.as_os_str())
         });
-        super::analysis::finish(root, &mut inspection);
-        match super::snapshot::capture(source, kind) {
+        tracing::debug_span!("analyze_source").in_scope(|| {
+            super::analysis::finish(root, &mut inspection);
+        });
+        let snapshot = tracing::debug_span!("snapshot_source")
+            .in_scope(|| super::snapshot::capture(source, kind));
+        match snapshot {
             Ok(snapshot) => inspection.snapshot = snapshot,
             Err(error) => inspection.notices.push(InspectionNotice::blocker(
                 NoticeKind::Unreadable,
@@ -94,7 +135,16 @@ impl SourceInspector {
         Ok(inspection)
     }
 
-    fn inspect_directory(&self, directory: &Path, root: &Path, inspection: &mut SourceInspection) {
+    fn inspect_directory(
+        &self,
+        directory: &Path,
+        root: &Path,
+        inspection: &mut SourceInspection,
+        progress: &mut dyn InspectionProgress,
+        inspected_files: &mut usize,
+    ) -> Result<(), InspectionError> {
+        let span = tracing::debug_span!("inspect_directory", path = %directory.display());
+        let _entered = span.enter();
         let entries = match fs::read_dir(directory) {
             Ok(entries) => entries,
             Err(error) => {
@@ -103,7 +153,7 @@ impl SourceInspector {
                     relative(directory, root),
                     format!("cannot read directory: {error}"),
                 ));
-                return;
+                return Ok(());
             }
         };
         let mut entries = entries
@@ -140,9 +190,9 @@ impl SourceInspector {
                     "symbolic link will not be followed or copied",
                 ));
             } else if file_type.is_dir() {
-                self.inspect_directory(&path, root, inspection);
+                self.inspect_directory(&path, root, inspection, progress, inspected_files)?;
             } else if file_type.is_file() {
-                self.inspect_file(&path, root, inspection);
+                self.inspect_file(&path, root, inspection, progress, inspected_files)?;
             } else {
                 inspection.notices.push(InspectionNotice::blocker(
                     NoticeKind::SpecialFile,
@@ -151,9 +201,17 @@ impl SourceInspector {
                 ));
             }
         }
+        Ok(())
     }
 
-    fn inspect_file(&self, path: &Path, root: &Path, inspection: &mut SourceInspection) {
+    fn inspect_file(
+        &self,
+        path: &Path,
+        root: &Path,
+        inspection: &mut SourceInspection,
+        progress: &mut dyn InspectionProgress,
+        inspected_files: &mut usize,
+    ) -> Result<(), InspectionError> {
         let relative_path = relative(path, root).unwrap_or_else(|| path.to_owned());
         let metadata = match File::open(path).and_then(|file| file.metadata()) {
             Ok(metadata) => metadata,
@@ -163,16 +221,27 @@ impl SourceInspector {
                     Some(relative_path),
                     format!("cannot read file: {error}"),
                 ));
-                return;
+                return Ok(());
             }
         };
+        *inspected_files += 1;
+        progress
+            .inspecting_file(path, *inspected_files, metadata.len())
+            .map_err(InspectionError::Progress)?;
+        let span = tracing::trace_span!(
+            "inspect_file",
+            path = %path.display(),
+            bytes = metadata.len()
+        );
+        let _entered = span.enter();
         match self.audio.probe(path) {
             Ok(AudioProbe::Supported(audio)) => {
                 let mut audio = *audio;
                 audio.relative_path = relative_path.clone();
                 inspect_audio_extension(&audio, path, inspection);
+                tracing::trace!(kind = "audio", format = %audio.format, "file classified");
                 inspection.audio.push(audio);
-                return;
+                return Ok(());
             }
             Ok(AudioProbe::Unsupported(format)) => {
                 inspection.notices.push(InspectionNotice::blocker(
@@ -180,7 +249,7 @@ impl SourceInspector {
                     Some(relative_path),
                     format!("recognized audio format {format} is not supported in v0.1"),
                 ));
-                return;
+                return Ok(());
             }
             Ok(AudioProbe::NotAudio) => {}
             Err(AudioReadError::Parse(_)) if !probable_audio_extension(path) => {}
@@ -194,7 +263,7 @@ impl SourceInspector {
                     Some(relative_path),
                     error.to_string(),
                 ));
-                return;
+                return Ok(());
             }
         }
 
@@ -204,7 +273,7 @@ impl SourceInspector {
                 Some(relative_path),
                 "file looks like audio from its name but its contents are unsupported or damaged",
             ));
-            return;
+            return Ok(());
         }
 
         match artwork::probe(path) {
@@ -255,6 +324,8 @@ impl SourceInspector {
             relative_path,
             bytes: metadata.len(),
         });
+        tracing::trace!(kind = "ancillary", "file classified");
+        Ok(())
     }
 }
 

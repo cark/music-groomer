@@ -19,6 +19,7 @@ use music_groomer::source::SourceInspector;
 use music_groomer::terminal::{Interaction, StdioInteraction, UiLine, byte_count};
 
 mod cli;
+mod diagnostics;
 
 use cli::{CacheAction, Cli, CliCommand};
 
@@ -46,6 +47,11 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), String> {
     let arguments = Cli::parse();
+    let diagnostics = arguments
+        .diagnostics
+        .then(diagnostics::initialize)
+        .transpose()
+        .map_err(|error| error.to_string())?;
     let cache_directory = arguments.cache_dir;
     match arguments.command {
         Some(CliCommand::Demo { scenario, output }) => {
@@ -56,9 +62,13 @@ fn run() -> Result<(), String> {
         }
         Some(CliCommand::Cache { action }) => run_cache(action, cache_directory),
         None => match arguments.source {
-            Some(source) => {
-                run_inspection(source, arguments.offline, cache_directory, arguments.output)
-            }
+            Some(source) => run_inspection(
+                source,
+                arguments.offline,
+                cache_directory,
+                arguments.output,
+                diagnostics.as_deref(),
+            ),
             None => {
                 Cli::command()
                     .print_help()
@@ -181,11 +191,30 @@ fn run_inspection(
     offline: bool,
     cache_directory: Option<PathBuf>,
     output: Option<PathBuf>,
+    diagnostics: Option<&std::path::Path>,
 ) -> Result<(), String> {
-    let inspection = SourceInspector::default()
-        .inspect(&source)
-        .map_err(|error| error.to_string())?;
     with_stdio_interaction(|interaction| {
+        if let Some(path) = diagnostics {
+            interaction
+                .path_field("Diagnostics", path.display().to_string())
+                .map_err(|error| error.to_string())?;
+        }
+        interaction
+            .status(UiLine::prose("Inspecting source..."))
+            .map_err(|error| error.to_string())?;
+        let mut progress = InteractionInspectionProgress {
+            interaction,
+            root: source
+                .is_dir()
+                .then_some(source.as_path())
+                .or_else(|| source.parent())
+                .unwrap_or_else(|| std::path::Path::new(""))
+                .to_owned(),
+        };
+        let inspection = SourceInspector::default()
+            .inspect_with_progress(&source, &mut progress)
+            .map_err(|error| error.to_string())?;
+        let interaction = progress.interaction;
         if inspection.is_blocked() {
             inspection_ui::run(interaction, &inspection)
                 .map_err(|error| format!("terminal interaction failed: {error}"))?;
@@ -233,6 +262,30 @@ fn run_inspection(
             .map_err(|error| error.to_string())
         }
     })
+}
+
+struct InteractionInspectionProgress<'a, I> {
+    interaction: &'a mut I,
+    root: PathBuf,
+}
+
+impl<I: Interaction> music_groomer::source::InspectionProgress
+    for InteractionInspectionProgress<'_, I>
+{
+    fn inspecting_file(
+        &mut self,
+        path: &std::path::Path,
+        number: usize,
+        _bytes: u64,
+    ) -> Result<(), String> {
+        let shown = path.strip_prefix(&self.root).unwrap_or(path);
+        self.interaction
+            .status(UiLine::prose(format!(
+                "Reading file {number}: {}",
+                shown.display()
+            )))
+            .map_err(|error| error.to_string())
+    }
 }
 
 fn provider_cache(

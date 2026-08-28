@@ -13,6 +13,7 @@ fn top_level_help_documents_the_primary_workflow_and_hides_the_demo() {
         assert!(stdout.contains("--offline"));
         assert!(stdout.contains("--output <DIRECTORY>"));
         assert!(stdout.contains("--cache-dir <DIRECTORY>"));
+        assert!(stdout.contains("--diagnostics"));
         assert!(stdout.contains("cache"));
         assert!(!stdout.contains("demo"));
     }

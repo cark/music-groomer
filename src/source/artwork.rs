@@ -16,6 +16,8 @@ pub(super) enum ArtworkProbe {
 }
 
 pub(super) fn probe(path: &Path) -> io::Result<ArtworkProbe> {
+    let span = tracing::trace_span!("probe_artwork", path = %path.display());
+    let _entered = span.enter();
     let mut file = File::open(path)?;
     let mut header = [0_u8; 32];
     let read = file.read(&mut header)?;
