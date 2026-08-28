@@ -6,8 +6,8 @@ must never modify the selected source.
 
 ## Current phase
 
-Product and technical direction is aligned through milestone 4. Milestones 1,
-2, 3a, and 3b are implemented, reviewed, verified, and accepted by the user.
+Product and technical direction is aligned through milestone 5. Milestones 1,
+2, 3a, 3b, 4, and 5 are implemented, reviewed, verified, and accepted by the user.
 The final milestone 3b loose-library-track exercise confirmed the corrected
 single discovery, animated provider feedback, and phase spacing on 2026-08-28.
 The accepted post-milestone-3 review corrections are implemented and verified.
@@ -17,9 +17,9 @@ correction set are implemented and verified, and the user explicitly accepted
 the milestone on 2026-08-28. Its corrections and the first cross-platform CI
 run are pushed and green.
 
-Milestone 5 whole-release replacement and recovery alignment was explicitly
-confirmed by the user on 2026-08-28. The user explicitly authorized
-implementation on the same date.
+Milestone 5 whole-release replacement and recovery was implemented, reviewed,
+verified, exercised through disposable fixtures, and explicitly accepted by
+the user on 2026-08-29.
 
 ## Task routing
 

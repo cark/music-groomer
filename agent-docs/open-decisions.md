@@ -25,9 +25,8 @@ decision page.
 
 ## Open questions
 
-Milestone 4 and its final-review corrections are accepted. The first post-v0.1
-milestone is aligned around whole-release replacement, while incremental
-completion remains deferred.
+Milestones 4 and 5 are accepted. Milestone 5 delivered whole-release
+replacement and recovery, while incremental completion remains deferred.
 
 Replacement follows a newly corrected canonical destination path when that
 differs from the selected release path. Replacement uses the existing guided
@@ -61,5 +60,5 @@ only versions retained afterward.
 The automatic eviction mechanism is part of Milestone 5; only external cron or
 systemd scheduling remains a later deployment integration.
 
-No product question remains open. The user explicitly confirmed overall
-Milestone 5 alignment and authorized implementation on 2026-08-28.
+No product question remains open. The user explicitly accepted Milestone 5 on
+2026-08-29 after implementation, review, verification, and terminal exercises.

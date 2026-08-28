@@ -30,10 +30,10 @@ This page tracks implementation. Durable product reasoning belongs in the
   re-inspected its ten-track result, and approved the experience. The final
   review correction set is implemented and passes the full offline gate. The
   user explicitly accepted Milestone 4 on 2026-08-28.
-- The first post-v0.1 milestone is aligned. Its accepted scope is safe
-  whole-release replacement; incremental merging and completion remain a later
-  distinct workflow. The user explicitly confirmed overall Milestone 5
-  alignment and authorized implementation on 2026-08-28.
+- Milestone 5 safe whole-release replacement and recovery was aligned and
+  authorized on 2026-08-28, then implemented, reviewed, verified, exercised,
+  and explicitly accepted by the user on 2026-08-29. Incremental merging and
+  standalone-file replacement remain later distinct workflows.
 
 ## Working rules
 
@@ -280,7 +280,7 @@ Acceptance:
 
 ## Milestone 5: safe whole-release replacement and recovery
 
-Status: implementation authorized on 2026-08-28
+Status: accepted on 2026-08-29
 
 Re-groom one explicitly selected complete release directory already inside the
 configured library. Reuse the existing guided command and Apply action, but
@@ -304,6 +304,16 @@ Handled failures attempt rollback after complete preflight and validation. Do
 not add a durable crash journal; power-loss and hard-crash recovery may require
 manual filesystem work. Standalone-file replacement and incremental release
 completion remain important later workflows.
+
+Acceptance evidence:
+
+- Focused transaction tests cover identity, collision, filesystem safety,
+  rollback, immutable protection deadlines, maintenance, and exact removal.
+- Two deliberate reviews found no remaining correctness or safety blocker.
+- The user exercised both the empty recovery manager and a disposable fixture
+  through default-No restore, two restore swaps, default-No removal, and removal.
+- The full formatting, strict Clippy, and 251-test offline gate passed; the
+  three live-provider smoke tests remained intentionally ignored.
 
 ## Standard verification
 

@@ -179,5 +179,8 @@ implementation by itself.
 
 ## Alignment status
 
+Implementation was authorized on 2026-08-28 and explicitly accepted after
+review, full verification, and terminal exercises on 2026-08-29.
+
 No product question remains open. The user explicitly confirmed overall
 Milestone 5 alignment and authorized implementation on 2026-08-28.
