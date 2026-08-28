@@ -70,6 +70,39 @@ nix develop -c cargo run -- --cache-dir /tmp/music-groomer-smoke SOURCE
 The caller owns the temporary directory's lifecycle. music-groomer marks its
 cache and refuses to claim or clear a non-empty unmarked directory.
 
+## Replacing and recovering releases
+
+Selecting a complete release directory already inside the configured library
+turns Apply into a whole-release replacement. The preview names the current and
+proposed paths, and replacement requires a separate confirmation that defaults
+to No. The complete displaced release is retained under music-groomer's marked,
+Navidrome-excluded recovery storage; it is never silently overwritten.
+
+Manage retained releases through the guided recovery command:
+
+```text
+nix develop -c cargo run -- recovery
+```
+
+The interaction lists recognizable release names, historical paths, sizes, and
+protection status. Restore returns one selected version to its historical path
+and safely retains the displaced active version with a fresh protection period.
+Restore and one-version removal each have their own confirmation defaulting to
+No. Internal recovery payload paths are diagnostics, not a manual interface.
+
+The recovery grace period defaults to 30 days and the soft storage limit to
+10 GiB. Both are editable in the guided recovery interaction. Protected copies
+may exceed the limit; eligible copies are evicted oldest-first during confirmed
+Apply or an explicitly scheduled maintenance run:
+
+```text
+nix develop -c cargo run -- recovery maintain
+```
+
+Handled replacement and restore failures attempt rollback. A power loss, hard
+crash, or reboot during filesystem movement may still require manual recovery;
+music-groomer does not claim crash-proof transactions in this alpha release.
+
 The cache defaults to 256 MiB. It can be changed in the platform user config
 file with, for example, `cache_max_mib = 128`. Metadata is fresh for 30 days;
 stale entries remain available as an explicit fallback and least-recently used
