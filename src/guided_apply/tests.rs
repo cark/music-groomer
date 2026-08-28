@@ -166,6 +166,16 @@ fn replacement_preview_and_confirmation_default_to_no_without_moving_anything() 
     assert!(
         interaction
             .transcript
+            .contains("Nothing changes until replacement Apply is explicitly confirmed")
+    );
+    assert!(
+        !interaction
+            .transcript
+            .contains("The source remains untouched")
+    );
+    assert!(
+        interaction
+            .transcript
             .contains("Proceed with replacement? [y/N]:")
     );
     assert_eq!(

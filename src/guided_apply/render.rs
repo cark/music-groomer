@@ -70,8 +70,12 @@ pub fn summary(
     } else {
         interaction.field("Warnings", plan.warnings.len().to_string())?;
     }
-    interaction
-        .prose("  The source remains untouched. Nothing changes until Apply is confirmed.")?;
+    if replacement.is_some() {
+        interaction.prose("  Nothing changes until replacement Apply is explicitly confirmed.")?;
+    } else {
+        interaction
+            .prose("  The source remains untouched. Nothing changes until Apply is confirmed.")?;
+    }
     interaction.blank()
 }
 
