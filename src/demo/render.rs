@@ -88,8 +88,10 @@ pub(super) fn show_details(
     interaction.blank()?;
     interaction.heading("All planned changes")?;
     for track in &plan.tracks {
-        interaction
-            .present(UiLine::new().with(SemanticRole::Value, format!("  {}", track.source_name)))?;
+        interaction.present(UiLine::new().with(
+            SemanticRole::Value,
+            format!("  {}", track.source_relative.display()),
+        ))?;
         interaction.present(UiLine::new().with(
             SemanticRole::Path,
             format!("    → {}", track.destination.display()),

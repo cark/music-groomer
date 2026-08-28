@@ -307,7 +307,7 @@ fn plan(album: &str, track: u32) -> PlannedTags {
         artist_ids: None,
         album_artist_ids: None,
         compilation: false,
-        original_year: 2000,
+        original_year: Some(2000),
         track,
         track_total: 2,
         disc: 1,

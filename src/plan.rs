@@ -2,18 +2,23 @@ use std::fmt;
 use std::path::PathBuf;
 
 use crate::domain::CandidateRelease;
+use crate::source::PlannedTags;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TagField {
     Artist,
+    Artists,
     ArtistIds,
     AlbumArtist,
+    AlbumArtists,
     AlbumArtistIds,
     Album,
     Compilation,
     OriginalYear,
     DiscNumber,
+    DiscTotal,
     TrackNumber,
+    TrackTotal,
     Title,
     MusicBrainzRecordingId,
     MusicBrainzReleaseGroupId,
@@ -23,14 +28,18 @@ impl fmt::Display for TagField {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::Artist => "artist",
+            Self::Artists => "constituent artists",
             Self::ArtistIds => "MusicBrainz artist IDs",
             Self::AlbumArtist => "album artist",
+            Self::AlbumArtists => "constituent album artists",
             Self::AlbumArtistIds => "MusicBrainz album-artist IDs",
             Self::Album => "album",
             Self::Compilation => "compilation",
             Self::OriginalYear => "original year",
             Self::DiscNumber => "disc number",
+            Self::DiscTotal => "disc total",
             Self::TrackNumber => "track number",
+            Self::TrackTotal => "track total",
             Self::Title => "title",
             Self::MusicBrainzRecordingId => "MusicBrainz recording ID",
             Self::MusicBrainzReleaseGroupId => "MusicBrainz release-group ID",
@@ -47,9 +56,10 @@ pub struct TagChange {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TrackPlan {
-    pub source_name: String,
+    pub source_relative: PathBuf,
     pub destination: PathBuf,
     pub tag_changes: Vec<TagChange>,
+    pub planned_tags: Option<PlannedTags>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -108,6 +118,7 @@ pub struct GroomingPlan {
     pub artwork_alternatives: Vec<ArtworkChoice>,
     pub warnings: Vec<PlanWarning>,
     pub preserved_embedded_artwork: usize,
+    pub archive_artwork_bytes: Option<Vec<u8>>,
 }
 
 impl GroomingPlan {
@@ -121,10 +132,7 @@ impl GroomingPlan {
     pub fn filename_change_count(&self) -> usize {
         self.tracks
             .iter()
-            .filter(|track| {
-                track.destination.file_name().and_then(|name| name.to_str())
-                    != Some(track.source_name.as_str())
-            })
+            .filter(|track| track.destination.file_name() != track.source_relative.file_name())
             .count()
     }
 
@@ -216,13 +224,14 @@ mod tests {
             destination_root: PathBuf::new(),
             destination: "Artist/2000 - Album".into(),
             tracks: vec![TrackPlan {
-                source_name: "old.flac".into(),
+                source_relative: "old.flac".into(),
                 destination: "Artist/2000 - Album/01 - New.flac".into(),
                 tag_changes: vec![TagChange {
                     field: TagField::Title,
                     before: Some("Old".into()),
                     after: "New".into(),
                 }],
+                planned_tags: None,
             }],
             artwork: ArtworkChoice {
                 origin: ArtworkOrigin::None,
@@ -233,6 +242,7 @@ mod tests {
             artwork_alternatives: Vec::new(),
             warnings: Vec::new(),
             preserved_embedded_artwork: 1,
+            archive_artwork_bytes: None,
         }
     }
 

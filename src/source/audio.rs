@@ -29,7 +29,7 @@ pub struct PlannedTags {
     pub artist_ids: Option<Vec<String>>,
     pub album_artist_ids: Option<Vec<String>>,
     pub compilation: bool,
-    pub original_year: u16,
+    pub original_year: Option<u16>,
     pub track: u32,
     pub track_total: u32,
     pub disc: u32,
@@ -256,8 +256,10 @@ fn apply_plan(tag: &mut Tag, plan: &PlannedTags) {
         ItemKey::FlagCompilation,
         if plan.compilation { "1" } else { "0" }.to_owned(),
     );
-    tag.insert_text(ItemKey::OriginalReleaseDate, plan.original_year.to_string());
-    tag.insert_text(ItemKey::RecordingDate, plan.original_year.to_string());
+    if let Some(original_year) = plan.original_year {
+        tag.insert_text(ItemKey::OriginalReleaseDate, original_year.to_string());
+        tag.insert_text(ItemKey::RecordingDate, original_year.to_string());
+    }
     tag.set_track(plan.track);
     tag.set_track_total(plan.track_total);
     tag.set_disk(plan.disc);

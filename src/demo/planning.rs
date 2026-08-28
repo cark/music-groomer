@@ -116,9 +116,10 @@ pub(super) fn build_plan(
         .zip(relative_layout.tracks)
         .zip(track_changes)
         .map(|((source, relative_destination), tag_changes)| TrackPlan {
-            source_name: source.source_name.clone(),
+            source_relative: source.source_name.clone().into(),
             destination: destination_root.join(relative_destination),
             tag_changes,
+            planned_tags: None,
         })
         .collect();
     let artwork = data
@@ -144,6 +145,7 @@ pub(super) fn build_plan(
         artwork_alternatives,
         warnings: data.warning.clone().into_iter().collect(),
         preserved_embedded_artwork: data.embedded_artwork_count,
+        archive_artwork_bytes: None,
     })
 }
 

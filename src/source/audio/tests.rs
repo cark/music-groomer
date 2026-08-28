@@ -363,7 +363,7 @@ fn plan() -> PlannedTags {
         artist_ids: Some(vec!["artist-a-id".to_owned(), "artist-b-id".to_owned()]),
         album_artist_ids: Some(vec!["artist-a-id".to_owned(), "artist-b-id".to_owned()]),
         compilation: true,
-        original_year: 1971,
+        original_year: Some(1971),
         track: 2,
         track_total: 8,
         disc: 1,

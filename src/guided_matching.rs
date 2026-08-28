@@ -6,6 +6,7 @@ use crate::fingerprint::{AudioFingerprinter, FingerprintError, FingerprintProgre
 use crate::identification::FingerprintEvidence;
 use crate::matching::RankedCandidate;
 use crate::matching_ui::{MetadataSelection, choose, revise};
+use crate::plan::MatchSelection;
 use crate::provider::{
     AcoustIdLookupOrigin, AcoustIdProvider, ArtworkProvider, ArtworkResolver, LookupOrigin,
     MetadataProvider, MetadataResolver, ProviderCache, ProviderError, ProviderEvent,
@@ -33,6 +34,7 @@ pub struct GuidedMatchResult {
     pub artwork: ArtworkSelection,
     pub identification: Option<FingerprintEvidence>,
     pub warnings: Vec<String>,
+    pub match_selection: MatchSelection,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -174,6 +176,11 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
     warning_state.set_identification(identified.warnings);
     let mut identification = identified.evidence;
     let decision = identified.decision;
+    let mut match_selection = match &decision {
+        crate::matching::MatchDecision::Selected { .. } => MatchSelection::Automatic,
+        crate::matching::MatchDecision::NeedsChoice(_) => MatchSelection::UserChosen,
+        crate::matching::MatchDecision::NoUsableMatch(_) => MatchSelection::ExistingTags,
+    };
     let mut candidates = decision.candidates().to_vec();
     let mut metadata = choose(interaction, &inspection, decision)?;
     if metadata == MetadataSelection::Cancelled {
@@ -184,6 +191,7 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
             artwork: ArtworkSelection::None,
             identification,
             warnings: warning_state.current(),
+            match_selection,
         });
     }
     let (mut source_year_fallback, selection_warnings) =
@@ -242,6 +250,11 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
                     identification.as_ref(),
                 )?;
                 if changed {
+                    match_selection = match metadata {
+                        MetadataSelection::Provider(_) => MatchSelection::UserChosen,
+                        MetadataSelection::ExistingTags => MatchSelection::ExistingTags,
+                        MetadataSelection::Cancelled => match_selection,
+                    };
                     let (fallback, selection_warnings) =
                         selection_year_warnings(&inspection, &mut metadata);
                     source_year_fallback = fallback;
@@ -313,6 +326,11 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
                 };
                 if metadata_replaced {
                     metadata = refreshed_selection;
+                    match_selection = match metadata {
+                        MetadataSelection::Provider(_) => MatchSelection::UserChosen,
+                        MetadataSelection::ExistingTags => MatchSelection::ExistingTags,
+                        MetadataSelection::Cancelled => match_selection,
+                    };
                     candidates = refreshed_candidates;
                     if identified.evidence_replaced {
                         identification = identified.evidence;
@@ -399,6 +417,7 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
         artwork,
         identification,
         warnings: warning_state.current(),
+        match_selection,
     })
 }
 
