@@ -81,6 +81,13 @@ validation, and error behavior. Keep Clap types out of the core workflow.
 maintenance subcommand whose default action is read-only status. Keep the
 milestone-only `demo` command available but hidden from ordinary help.
 
+Use `tracing` spans and events as the library-side diagnostics boundary, with
+the executable owning the subscriber and diagnostic-file lifecycle. Do not
+send logs directly to stdout or stderr during the guided interface: all normal
+terminal output continues through semantic UI primitives. The v0.1 diagnostic
+subscriber is explicit, synchronous, human-readable, and filtered to
+application-owned targets; structured JSON and always-on logging are deferred.
+
 ## Apply and cleanup
 
 Build and validate in the operating system's temporary directory after a space

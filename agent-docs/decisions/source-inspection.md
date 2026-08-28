@@ -88,3 +88,22 @@ Apply will copy into temporary staging and validate the staged result; handled
 read, copy, or validation failures stop publication and leave the source
 untouched. More elaborate concurrent-change detection is a possible later
 hardening measure if real use demonstrates the need.
+
+## Progress and diagnostics
+
+Interactive inspection must report work immediately and update a transient
+status with the current ordinary file. A slow directory must never resemble a
+stalled program merely because the complete inspection summary is not ready.
+
+`--diagnostics` explicitly enables one detailed human-readable log; ordinary
+runs perform no diagnostic file I/O. Store it at `diagnostics.log` in the
+platform application-state directory, falling back to the application-cache
+directory where no state directory exists. Replace it on each diagnostic run,
+hold an exclusive lock for the run, show its resolved path, and fail clearly if
+it cannot be created, replaced, or locked.
+
+Record owned phase and per-file spans with elapsed times, byte sizes,
+classification, outcomes, errors, and full local paths. Do not record tag
+contents, fingerprints, provider bodies, or credentials. Keep dependency logs
+filtered out. Tests inject temporary paths and never write to the user's real
+application directories.
