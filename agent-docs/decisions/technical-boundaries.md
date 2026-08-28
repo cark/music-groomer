@@ -98,6 +98,14 @@ not weaken it with a check-then-rename fallback. Ordinary `Ctrl-C` termination
 may occur before or after this syscall, but cannot expose a half-renamed
 directory.
 
+Validation is the final proof that the staged result matches the confirmed
+preview. Any promised invariant that fails to round-trip blocks publication:
+v0.1 has no Apply-anyway override. Report the exact mismatch, clean handled
+staging data, and return to the unchanged preview so the user may retry or
+cancel. This guard primarily catches format-specific writer surprises,
+dependency regressions, filesystem anomalies, and implementation mistakes
+after individual operations appeared successful.
+
 Clean output-side publication data after handled failures. On a later run,
 inspect only music-groomer's dedicated partial area under the destination root,
 not the library tree. If a marked abandoned publication is found, show its size

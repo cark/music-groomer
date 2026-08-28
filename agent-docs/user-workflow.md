@@ -151,6 +151,11 @@ object types, sizes, and modification times. Refuse Apply when that simple
 inventory check changed. Do not hash every source file or attempt to merge
 external changes.
 
+If final validation finds that the staged result differs from the confirmed
+preview, refuse publication without an override. Name the mismatched invariant,
+clean the handled staging data, and return to preview; an apparently successful
+write is not enough when the promised result cannot be verified.
+
 Build and validate in the operating system's temporary directory so ordinary
 failures do not leave dead album copies on persistent storage. Check available
 temporary space before starting and remove temporary work after success or any
