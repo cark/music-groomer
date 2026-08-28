@@ -9,6 +9,26 @@ use music_groomer::recovery::{
 use tempfile::TempDir;
 
 #[test]
+fn recovery_without_an_action_opens_the_guided_manager() {
+    let temporary = TempDir::new().unwrap();
+    let config_home = temporary.path().join("config-home");
+
+    let output = Command::new(binary())
+        .arg("recovery")
+        .env("XDG_CONFIG_HOME", &config_home)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Recovery"));
+    assert!(stdout.contains("Library: not configured"));
+    assert!(stdout.contains("No retained copies are available"));
+    assert!(stdout.contains("Preferences"));
+    assert!(!config_home.exists());
+}
+
+#[test]
 fn maintenance_without_a_recovery_store_is_a_successful_read_only_noop() {
     let temporary = TempDir::new().unwrap();
     let library = temporary.path().join("library");

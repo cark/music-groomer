@@ -79,9 +79,9 @@ fn run() -> Result<(), String> {
     }
 }
 
-fn run_recovery(action: RecoveryAction) -> Result<(), String> {
+fn run_recovery(action: Option<RecoveryAction>) -> Result<(), String> {
     match action {
-        RecoveryAction::Maintain => {
+        Some(RecoveryAction::Maintain) => {
             let config = AppConfig::load().map_err(|error| error.to_string())?;
             let configured = config.destination.as_ref().ok_or_else(|| {
                 "no destination library is configured; choose and save one in a grooming session first"
@@ -104,6 +104,32 @@ fn run_recovery(action: RecoveryAction) -> Result<(), String> {
                 .map_err(|error| format!("recovery maintenance failed: {error}"))?;
             with_stdio_interaction(|interaction| {
                 render_maintenance(interaction, &report, max_bytes, true, Some(&library))
+            })
+            .map_err(|error| error.to_string())
+        }
+        None => {
+            let config_path = AppConfig::platform_path().map_err(|error| error.to_string())?;
+            let mut config =
+                AppConfig::load_from(&config_path).map_err(|error| error.to_string())?;
+            let library = config
+                .destination
+                .as_ref()
+                .map(|configured| {
+                    configured.canonicalize().map_err(|error| {
+                        format!(
+                            "cannot use configured destination library {}: {error}",
+                            configured.display()
+                        )
+                    })
+                })
+                .transpose()?;
+            with_stdio_interaction(|interaction| {
+                music_groomer::guided_recovery::run(
+                    interaction,
+                    library.as_deref(),
+                    &mut config,
+                    &config_path,
+                )
             })
             .map_err(|error| error.to_string())
         }

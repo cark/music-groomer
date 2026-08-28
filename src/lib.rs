@@ -8,6 +8,7 @@ pub mod domain;
 pub mod fingerprint;
 pub mod guided_apply;
 pub mod guided_matching;
+pub mod guided_recovery;
 pub mod identification;
 pub mod inspection_ui;
 pub mod layout;

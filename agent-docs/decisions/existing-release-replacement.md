@@ -73,6 +73,11 @@ reset its retention timestamp and protected-until clock using the effective
 grace preference. The version being restored becomes active and has no running
 recovery-eviction clock.
 
+Require a restore-specific confirmation immediately before movement, defaulting
+to No. Show the current active path, the selected historical restore path, and
+the fresh protection period that the displaced active version will receive.
+This keeps the state change deliberate without requiring a typed phrase.
+
 Restore the selected version to the exact library path it occupied when it was
 retained, so content, metadata, and layout return as one historical state. Check
 that path before moving either version. If unrelated content now occupies it,
