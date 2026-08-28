@@ -173,7 +173,7 @@ fn copy_tree(source: &Path, destination: &Path) -> Result<(), PublicationError> 
     Ok(())
 }
 
-fn create_parents(
+pub(crate) fn create_parents(
     destination_root: &Path,
     destination: &Path,
 ) -> Result<Vec<PathBuf>, PublicationError> {
@@ -203,7 +203,7 @@ fn create_parents(
     Ok(created)
 }
 
-fn remove_empty_parents(mut paths: Vec<PathBuf>) {
+pub(crate) fn remove_empty_parents(mut paths: Vec<PathBuf>) {
     paths.reverse();
     for path in paths {
         let _ = fs::remove_dir(path);
@@ -303,7 +303,7 @@ fn windows_volume(path: &Path) -> Result<Vec<u16>, PublicationError> {
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn exclusive_rename(source: &Path, destination: &Path) -> Result<(), PublicationError> {
+pub(crate) fn exclusive_rename(source: &Path, destination: &Path) -> Result<(), PublicationError> {
     use rustix::fs::{CWD, RenameFlags, renameat_with};
     renameat_with(CWD, source, CWD, destination, RenameFlags::NOREPLACE).map_err(|error| {
         if error == rustix::io::Errno::EXIST {
@@ -318,7 +318,7 @@ fn exclusive_rename(source: &Path, destination: &Path) -> Result<(), Publication
 }
 
 #[cfg(windows)]
-fn exclusive_rename(source: &Path, destination: &Path) -> Result<(), PublicationError> {
+pub(crate) fn exclusive_rename(source: &Path, destination: &Path) -> Result<(), PublicationError> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::MoveFileW;
     let source_wide = source
@@ -348,7 +348,7 @@ fn exclusive_rename(source: &Path, destination: &Path) -> Result<(), Publication
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-fn exclusive_rename(_source: &Path, destination: &Path) -> Result<(), PublicationError> {
+pub(crate) fn exclusive_rename(_source: &Path, destination: &Path) -> Result<(), PublicationError> {
     Err(PublicationError::UnsupportedPlatform(
         destination.to_owned(),
     ))

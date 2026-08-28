@@ -361,6 +361,9 @@ impl RecoveryStore {
             let _ = fs::remove_dir(versions);
             if let Some(lineage) = versions.parent() {
                 let _ = fs::remove_dir(lineage);
+                if let Some(lineages) = lineage.parent() {
+                    let _ = fs::remove_dir(lineages);
+                }
             }
         }
         Ok(())

@@ -1,7 +1,7 @@
 mod cleanup;
 mod copy;
 mod file_copy;
-mod publication;
+pub(crate) mod publication;
 mod space;
 mod validation;
 

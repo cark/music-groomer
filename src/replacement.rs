@@ -7,6 +7,10 @@ use crate::plan::GroomingPlan;
 use crate::recovery::RECOVERY_DIRECTORY;
 use crate::source::SourceInspection;
 
+mod swap;
+
+pub use swap::{ReplacementSwap, ReplacementSwapReport, SwapError, swap_prepared};
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReplacementContext {
     pub library_root: PathBuf,
