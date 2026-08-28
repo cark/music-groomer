@@ -234,7 +234,7 @@ fn destination_change_refuses_an_existing_final_album() {
     assert!(
         interaction
             .transcript
-            .contains("final album path already exists")
+            .contains("final release path already exists")
     );
 }
 

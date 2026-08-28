@@ -32,6 +32,7 @@ pub struct GuidedMatchResult {
     pub metadata_provenance: MetadataProvenance,
     pub candidates: Vec<RankedCandidate>,
     pub artwork: ArtworkSelection,
+    pub archive_artwork: Option<crate::provider::ProviderArtwork>,
     pub identification: Option<FingerprintEvidence>,
     pub warnings: Vec<String>,
     pub match_selection: MatchSelection,
@@ -189,6 +190,7 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
             metadata_provenance: MetadataProvenance::None,
             candidates,
             artwork: ArtworkSelection::None,
+            archive_artwork: None,
             identification,
             warnings: warning_state.current(),
             match_selection,
@@ -415,6 +417,7 @@ fn run_inner<M: MetadataProvider, A: ArtworkProvider, V: ArtworkViewer>(
         metadata_provenance,
         candidates,
         artwork,
+        archive_artwork,
         identification,
         warnings: warning_state.current(),
         match_selection,
@@ -479,7 +482,23 @@ fn show_preview(
     } else {
         interaction.field("Warnings", format!("{} (shown above)", warnings.len()))?;
     }
-    interaction.prose("  No files were changed. Apply arrives in milestone 4.")
+    interaction.prose("  No files were changed. Choose Done to continue to the exact plan.")
+}
+
+pub fn revise_artwork<V: ArtworkViewer>(
+    interaction: &mut impl Interaction,
+    source: &SourceInspection,
+    result: &mut GuidedMatchResult,
+    viewer: &mut V,
+) -> io::Result<()> {
+    result.artwork = choose_artwork(
+        interaction,
+        source,
+        result.archive_artwork.as_ref(),
+        result.artwork.clone(),
+        viewer,
+    )?;
+    Ok(())
 }
 
 fn review(

@@ -56,7 +56,9 @@ fn run() -> Result<(), String> {
         }
         Some(CliCommand::Cache { action }) => run_cache(action, cache_directory),
         None => match arguments.source {
-            Some(source) => run_inspection(source, arguments.offline, cache_directory),
+            Some(source) => {
+                run_inspection(source, arguments.offline, cache_directory, arguments.output)
+            }
             None => {
                 Cli::command()
                     .print_help()
@@ -190,6 +192,7 @@ fn run_inspection(
     source: PathBuf,
     offline: bool,
     cache_directory: Option<PathBuf>,
+    output: Option<PathBuf>,
 ) -> Result<(), String> {
     let inspection = SourceInspector::default()
         .inspect(&source)
@@ -229,8 +232,17 @@ fn run_inspection(
                             .to_owned(),
                     );
                 }
+                return Ok(());
             }
-            Ok(())
+            music_groomer::guided_apply::run(
+                interaction,
+                &inspection,
+                result,
+                config,
+                output.as_deref(),
+                &mut viewer,
+            )
+            .map_err(|error| error.to_string())
         }
     })
 }

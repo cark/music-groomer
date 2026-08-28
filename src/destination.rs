@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use crate::plan::{GroomingPlan, PlanError};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct DestinationRoot {
+pub struct DestinationRoot {
     path: PathBuf,
 }
 
@@ -59,7 +59,7 @@ impl DestinationRoot {
 }
 
 #[derive(Debug)]
-pub(super) enum DestinationError {
+pub enum DestinationError {
     Empty,
     HomeUnavailable,
     CurrentDirectory(io::Error),
@@ -88,12 +88,12 @@ impl fmt::Display for DestinationError {
             }
             Self::Collision(path) => write!(
                 formatter,
-                "the final album path already exists: {}",
+                "the final release path already exists: {}. v0.1 cannot yet complete or rebuild an existing release piece by piece",
                 path.display()
             ),
             Self::CollisionCheck { path, source } => write!(
                 formatter,
-                "cannot check the final album path {}: {source}",
+                "cannot check the final release path {}: {source}",
                 path.display()
             ),
             Self::InvalidPlan(error) => write!(formatter, "cannot relocate this plan: {error}"),

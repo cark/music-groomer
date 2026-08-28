@@ -157,6 +157,7 @@ fn result(metadata: MetadataSelection, artwork: ArtworkSelection) -> GuidedMatch
         metadata_provenance: MetadataProvenance::MusicBrainz,
         candidates: Vec::new(),
         artwork,
+        archive_artwork: None,
         identification: None,
         warnings: Vec::new(),
         match_selection: MatchSelection::UserChosen,

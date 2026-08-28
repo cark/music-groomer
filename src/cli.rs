@@ -18,6 +18,10 @@ pub struct Cli {
     #[arg(long, requires = "source")]
     pub offline: bool,
 
+    /// Use this existing destination root for this invocation
+    #[arg(short, long, requires = "source", value_name = "DIRECTORY", value_hint = ValueHint::DirPath)]
+    pub output: Option<PathBuf>,
+
     /// Album directory or standalone audio file to groom
     #[arg(value_name = "SOURCE", value_hint = ValueHint::AnyPath)]
     pub source: Option<PathBuf>,

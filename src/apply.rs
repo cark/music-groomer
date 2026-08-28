@@ -119,6 +119,11 @@ impl ApplyEngine {
                 &plan.destination_root,
                 &plan.destination,
                 self.force_destination_copy,
+                |payload| {
+                    validate(source, plan, payload)
+                        .map(|_| ())
+                        .map_err(|error| error.to_string())
+                },
             )
             .map_err(publication_failure)?;
             Ok((validation, publication))
@@ -126,6 +131,11 @@ impl ApplyEngine {
 
         match operation {
             Ok((validation, publication)) => {
+                if let Some(warning) = publication.cleanup_warning {
+                    warnings.push(format!(
+                        "The result was published, but publication cleanup was incomplete: {warning}"
+                    ));
+                }
                 if let Err(error) = temporary.close() {
                     warnings.push(format!(
                         "The result was published, but temporary cleanup failed: {error}"

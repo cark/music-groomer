@@ -19,6 +19,7 @@ pub enum PublicationRoute {
 #[derive(Debug)]
 pub struct PublicationResult {
     pub route: PublicationRoute,
+    pub cleanup_warning: Option<String>,
 }
 
 pub fn publish(
@@ -26,6 +27,7 @@ pub fn publish(
     destination_root: &Path,
     destination: &Path,
     force_destination_copy: bool,
+    mut validate_destination_copy: impl FnMut(&Path) -> Result<(), String>,
 ) -> Result<PublicationResult, PublicationError> {
     if destination
         .try_exists()
@@ -41,9 +43,15 @@ pub fn publish(
     let result = if direct {
         exclusive_rename(stage, destination).map(|()| PublicationResult {
             route: PublicationRoute::DirectRename,
+            cleanup_warning: None,
         })
     } else {
-        publish_through_partial(stage, destination_root, destination)
+        publish_through_partial(
+            stage,
+            destination_root,
+            destination,
+            &mut validate_destination_copy,
+        )
     };
     if result.is_err() {
         remove_empty_parents(created_parents);
@@ -55,6 +63,7 @@ fn publish_through_partial(
     stage: &Path,
     destination_root: &Path,
     destination: &Path,
+    validate: &mut dyn FnMut(&Path) -> Result<(), String>,
 ) -> Result<PublicationResult, PublicationError> {
     let partial_root = destination_root.join(PARTIAL_DIRECTORY);
     fs::create_dir_all(&partial_root).map_err(|source| PublicationError::Io {
@@ -66,14 +75,19 @@ fn publish_through_partial(
     let operation = (|| {
         write_marker(&entry)?;
         copy_tree(stage, &payload)?;
+        validate(&payload).map_err(|cause| PublicationError::Validation {
+            path: payload.clone(),
+            cause,
+        })?;
         exclusive_rename(&payload, destination)?;
         Ok(PublicationResult {
             route: PublicationRoute::DestinationCopy,
+            cleanup_warning: None,
         })
     })();
     match operation {
-        Ok(result) => {
-            remove_partial_container(&entry, &partial_root);
+        Ok(mut result) => {
+            result.cleanup_warning = remove_partial_container(&entry, &partial_root);
             Ok(result)
         }
         Err(original) => match remove_marked_entry(&entry) {
@@ -119,6 +133,16 @@ fn write_marker(entry: &Path) -> Result<(), PublicationError> {
 
 fn copy_tree(source: &Path, destination: &Path) -> Result<(), PublicationError> {
     fs::create_dir(destination).map_err(|source| PublicationError::Io {
+        path: destination.to_owned(),
+        source,
+    })?;
+    let permissions = fs::metadata(source)
+        .map_err(|error| PublicationError::Io {
+            path: source.to_owned(),
+            source: error,
+        })?
+        .permissions();
+    fs::set_permissions(destination, permissions).map_err(|source| PublicationError::Io {
         path: destination.to_owned(),
         source,
     })?;
@@ -192,10 +216,23 @@ fn remove_empty_parents(mut paths: Vec<PathBuf>) {
     }
 }
 
-fn remove_partial_container(entry: &Path, root: &Path) {
-    let _ = fs::remove_file(entry.join(PARTIAL_MARKER));
-    let _ = fs::remove_dir(entry);
-    let _ = fs::remove_dir(root);
+fn remove_partial_container(entry: &Path, root: &Path) -> Option<String> {
+    let operations = [
+        (entry.join(PARTIAL_MARKER), true),
+        (entry.to_owned(), false),
+        (root.to_owned(), false),
+    ];
+    for (path, file) in operations {
+        let result = if file {
+            fs::remove_file(&path)
+        } else {
+            fs::remove_dir(&path)
+        };
+        if let Err(error) = result {
+            return Some(format!("could not remove {}: {error}", path.display()));
+        }
+    }
+    None
 }
 
 fn remove_marked_entry(entry: &Path) -> std::io::Result<()> {
@@ -298,6 +335,10 @@ pub enum PublicationError {
     OutsideRoot(PathBuf),
     UnsafeObject(PathBuf),
     CannotAllocatePartial(PathBuf),
+    Validation {
+        path: PathBuf,
+        cause: String,
+    },
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     UnsupportedPlatform(PathBuf),
 }
@@ -310,7 +351,8 @@ impl PublicationError {
             | Self::Cleanup { path, .. }
             | Self::OutsideRoot(path)
             | Self::UnsafeObject(path)
-            | Self::CannotAllocatePartial(path) => path,
+            | Self::CannotAllocatePartial(path)
+            | Self::Validation { path, .. } => path,
             #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
             Self::UnsupportedPlatform(path) => path,
         }
@@ -350,6 +392,11 @@ impl fmt::Display for PublicationError {
                 "cannot allocate a unique publication partial under {}",
                 path.display()
             ),
+            Self::Validation { path, cause } => write!(
+                formatter,
+                "destination-side publication copy failed validation at {}: {cause}",
+                path.display()
+            ),
             #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
             Self::UnsupportedPlatform(path) => write!(
                 formatter,
@@ -378,7 +425,7 @@ mod tests {
         fs::write(stage.join("track.flac"), b"audio").unwrap();
         let destination = root.join("Artist/Album");
 
-        let result = publish(&stage, &root, &destination, false).unwrap();
+        let result = publish(&stage, &root, &destination, false, |_| Ok(())).unwrap();
 
         assert_eq!(result.route, PublicationRoute::DirectRename);
         assert_eq!(fs::read(destination.join("track.flac")).unwrap(), b"audio");
@@ -395,7 +442,7 @@ mod tests {
         fs::write(stage.join("track.flac"), b"audio").unwrap();
         let destination = root.join("Artist/Album");
 
-        let result = publish(&stage, &root, &destination, true).unwrap();
+        let result = publish(&stage, &root, &destination, true, |_| Ok(())).unwrap();
 
         assert_eq!(result.route, PublicationRoute::DestinationCopy);
         assert_eq!(fs::read(destination.join("track.flac")).unwrap(), b"audio");
@@ -414,7 +461,7 @@ mod tests {
         fs::write(stage.join("ours"), b"ours").unwrap();
         fs::write(destination.join("theirs"), b"theirs").unwrap();
 
-        let error = publish(&stage, &root, &destination, false).unwrap_err();
+        let error = publish(&stage, &root, &destination, false, |_| Ok(())).unwrap_err();
 
         assert!(matches!(error, PublicationError::Collision(_)));
         assert_eq!(fs::read(destination.join("theirs")).unwrap(), b"theirs");

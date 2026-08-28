@@ -244,7 +244,7 @@ fn clear_match_reaches_read_only_preview_without_extra_identifier_input() {
     assert!(
         interaction
             .transcript
-            .contains("Apply arrives in milestone 4")
+            .contains("Choose Done to continue to the exact plan")
     );
 }
 

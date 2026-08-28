@@ -1,4 +1,3 @@
-mod destination;
 mod fixtures;
 mod planning;
 mod render;
@@ -10,11 +9,11 @@ use std::fmt;
 use std::io;
 use std::path::Path;
 
+use crate::destination::DestinationRoot;
 use crate::matching::{MatchDecision, MatchPolicy, RankedCandidate};
 use crate::plan::{ApplyReport, GroomingPlan, MatchSelection};
 pub use crate::terminal::{Interaction, SemanticRole, StdioInteraction, UiLine};
 
-use destination::DestinationRoot;
 use fixtures::{DemoData, demo_data};
 use planning::{build_plan, coherent_standalone};
 use render::{choose_artwork, show_details, show_inspection, show_summary};
