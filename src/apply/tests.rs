@@ -195,6 +195,16 @@ fn ancillary_files_and_empty_directories_are_preserved() {
     fs::create_dir(&temporary_root).unwrap();
     fs::copy(fixture_path("seed.flac"), album.join("disc/source.flac")).unwrap();
     fs::write(album.join("extras/notes.txt"), b"keep me").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(
+            album.join("extras/notes.txt"),
+            fs::Permissions::from_mode(0o444),
+        )
+        .unwrap();
+        fs::set_permissions(album.join("extras"), fs::Permissions::from_mode(0o555)).unwrap();
+    }
     let inspection = SourceInspector::default().inspect(&album).unwrap();
     let destination = library.join("Test Artist/2000 - Test Album");
     let plan = GroomingPlan {
@@ -236,6 +246,11 @@ fn ancillary_files_and_empty_directories_are_preserved() {
         b"keep me"
     );
     assert!(destination.join("extras/empty").is_dir());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(album.join("extras"), fs::Permissions::from_mode(0o755)).unwrap();
+    }
 }
 
 struct Environment {

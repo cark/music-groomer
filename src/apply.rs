@@ -1,5 +1,6 @@
 mod cleanup;
 mod copy;
+mod file_copy;
 mod publication;
 mod space;
 mod validation;

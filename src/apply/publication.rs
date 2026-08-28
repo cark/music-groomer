@@ -4,6 +4,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use super::file_copy;
+
 pub const PARTIAL_DIRECTORY: &str = ".music-groomer-partials";
 pub const PARTIAL_MARKER: &str = ".music-groomer-partial";
 pub const MARKER_CONTENTS: &[u8] = b"music-groomer publication partial v1\n";
@@ -136,16 +138,6 @@ fn copy_tree(source: &Path, destination: &Path) -> Result<(), PublicationError> 
         path: destination.to_owned(),
         source,
     })?;
-    let permissions = fs::metadata(source)
-        .map_err(|error| PublicationError::Io {
-            path: source.to_owned(),
-            source: error,
-        })?
-        .permissions();
-    fs::set_permissions(destination, permissions).map_err(|source| PublicationError::Io {
-        path: destination.to_owned(),
-        source,
-    })?;
     let mut entries = fs::read_dir(source)
         .map_err(|error| PublicationError::Io {
             path: source.to_owned(),
@@ -168,9 +160,11 @@ fn copy_tree(source: &Path, destination: &Path) -> Result<(), PublicationError> 
         if metadata.file_type().is_dir() {
             copy_tree(&source_path, &destination_path)?;
         } else if metadata.file_type().is_file() {
-            fs::copy(&source_path, &destination_path).map_err(|source| PublicationError::Io {
-                path: destination_path,
-                source,
+            file_copy::copy_contents(&source_path, &destination_path).map_err(|source| {
+                PublicationError::Io {
+                    path: destination_path,
+                    source,
+                }
             })?;
         } else {
             return Err(PublicationError::UnsafeObject(source_path));

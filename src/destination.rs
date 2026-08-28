@@ -1,4 +1,5 @@
 use std::env;
+use std::ffi::OsString;
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -102,14 +103,26 @@ impl fmt::Display for DestinationError {
 }
 
 fn expand_home(input: &str) -> Result<PathBuf, DestinationError> {
+    expand_home_with(
+        input,
+        env::var_os("HOME"),
+        directories::BaseDirs::new().map(|directories| directories.home_dir().to_owned()),
+    )
+}
+
+fn expand_home_with(
+    input: &str,
+    home_environment: Option<OsString>,
+    platform_home: Option<PathBuf>,
+) -> Result<PathBuf, DestinationError> {
+    let home = home_environment
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or(platform_home);
     if input == "~" {
-        env::var_os("HOME")
-            .map(PathBuf::from)
-            .ok_or(DestinationError::HomeUnavailable)
+        home.ok_or(DestinationError::HomeUnavailable)
     } else if let Some(rest) = input.strip_prefix("~/") {
-        env::var_os("HOME")
-            .map(PathBuf::from)
-            .map(|home| home.join(rest))
+        home.map(|home| home.join(rest))
             .ok_or(DestinationError::HomeUnavailable)
     } else {
         Ok(PathBuf::from(input))
@@ -140,5 +153,36 @@ mod tests {
             .expect_err("a missing destination must be rejected");
 
         assert!(matches!(error, DestinationError::Unavailable { .. }));
+    }
+
+    #[test]
+    fn non_empty_home_environment_wins_over_platform_home() {
+        let expanded = expand_home_with(
+            "~/Music",
+            Some(OsString::from("E:/home")),
+            Some(PathBuf::from("C:/Users/cark")),
+        )
+        .unwrap();
+
+        assert_eq!(expanded, PathBuf::from("E:/home/Music"));
+    }
+
+    #[test]
+    fn empty_home_environment_uses_platform_home() {
+        let expanded = expand_home_with(
+            "~",
+            Some(OsString::new()),
+            Some(PathBuf::from("C:/Users/cark")),
+        )
+        .unwrap();
+
+        assert_eq!(expanded, PathBuf::from("C:/Users/cark"));
+    }
+
+    #[test]
+    fn paths_without_tilde_do_not_require_a_home() {
+        let expanded = expand_home_with("relative/music", None, None).unwrap();
+
+        assert_eq!(expanded, PathBuf::from("relative/music"));
     }
 }

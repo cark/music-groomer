@@ -6,6 +6,8 @@ use crate::plan::{ArtworkOrigin, GroomingPlan};
 use crate::planning::source_root;
 use crate::source::{LoftyAudioReader, SourceInspection};
 
+use super::file_copy;
+
 pub fn copy_to_stage(
     source: &SourceInspection,
     plan: &GroomingPlan,
@@ -15,14 +17,8 @@ pub fn copy_to_stage(
     let source_root = source_root(source);
     let mut destinations = BTreeSet::new();
     for directory in &plan.ancillary_directories {
-        let source_path = source_root.join(directory);
         let destination = stage.join(directory);
         fs::create_dir_all(&destination).map_err(|source| CopyError::io(&destination, source))?;
-        let permissions = fs::metadata(&source_path)
-            .map_err(|source| CopyError::io(&source_path, source))?
-            .permissions();
-        fs::set_permissions(&destination, permissions)
-            .map_err(|source| CopyError::io(&destination, source))?;
     }
     for track in &plan.tracks {
         let relative = track
@@ -113,13 +109,11 @@ fn copy_file_unreserved(source: &Path, destination: &Path) -> Result<(), CopyErr
     if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent).map_err(|source| CopyError::io(parent, source))?;
     }
-    fs::copy(source, destination)
-        .map(|_| ())
-        .map_err(|error| CopyError::Copy {
-            source_path: source.to_owned(),
-            destination: destination.to_owned(),
-            source: error,
-        })
+    file_copy::copy_contents(source, destination).map_err(|error| CopyError::Copy {
+        source_path: source.to_owned(),
+        destination: destination.to_owned(),
+        source: error,
+    })
 }
 
 #[derive(Debug)]

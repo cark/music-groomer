@@ -223,46 +223,11 @@ fn validate_ancillary(
     stage: &Path,
     source_root: &Path,
 ) -> Result<(), ValidationError> {
-    #[cfg(unix)]
-    for directory in &plan.ancillary_directories {
-        use std::os::unix::fs::PermissionsExt;
-        let before = source_root.join(directory);
-        let after = stage.join(directory);
-        let before_mode = fs::metadata(&before)
-            .map_err(|error| mismatch(&before, error.to_string()))?
-            .permissions()
-            .mode();
-        let after_mode = fs::metadata(&after)
-            .map_err(|error| mismatch(&after, error.to_string()))?
-            .permissions()
-            .mode();
-        if before_mode != after_mode {
-            return Err(mismatch(
-                &after,
-                "ancillary directory permission bits changed",
-            ));
-        }
-    }
     for file in &plan.ancillary {
         let before = source_root.join(&file.source_relative);
         let after = stage.join(&file.destination_relative);
         if digest(&before)? != digest(&after)? {
             return Err(mismatch(&after, "ancillary file bytes changed"));
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let before_mode = fs::metadata(&before)
-                .map_err(|error| mismatch(&before, error.to_string()))?
-                .permissions()
-                .mode();
-            let after_mode = fs::metadata(&after)
-                .map_err(|error| mismatch(&after, error.to_string()))?
-                .permissions()
-                .mode();
-            if before_mode != after_mode {
-                return Err(mismatch(&after, "ancillary Unix permission bits changed"));
-            }
         }
     }
     Ok(())
