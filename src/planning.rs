@@ -5,7 +5,7 @@ mod release;
 #[cfg(test)]
 mod tests;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -75,26 +75,21 @@ pub fn build_plan(
     let (artwork, archive_artwork_bytes) = artwork_plan(source, matched);
     let ancillary = ancillary_plan(source, &artwork);
     let ancillary_directories = ancillary_directories(source, &ancillary);
+    let destination = destination_root.join(&layout.directory);
+    let warnings = plan_warnings(source, matched, &tracks, &ancillary, &destination);
     let plan = GroomingPlan {
         source_label: source.source.display().to_string(),
         metadata,
         match_selection: matched.match_selection,
         match_reasons: reasons,
         destination_root: destination_root.to_owned(),
-        destination: destination_root.join(&layout.directory),
+        destination,
         tracks,
         ancillary,
         ancillary_directories,
         artwork,
         artwork_alternatives: Vec::new(),
-        warnings: matched
-            .warnings
-            .iter()
-            .map(|warning| PlanWarning {
-                summary: warning.clone(),
-                detail: warning.clone(),
-            })
-            .collect(),
+        warnings,
         preserved_embedded_artwork: source
             .audio
             .iter()
@@ -104,6 +99,54 @@ pub fn build_plan(
     };
     ensure_unique_outputs(&plan)?;
     Ok(plan)
+}
+
+fn plan_warnings(
+    source: &SourceInspection,
+    matched: &GuidedMatchResult,
+    tracks: &[crate::plan::TrackPlan],
+    ancillary: &[crate::plan::AncillaryPlan],
+    destination: &Path,
+) -> Vec<PlanWarning> {
+    let mut seen = BTreeSet::new();
+    let mut warnings = matched
+        .warnings
+        .iter()
+        .filter(|warning| seen.insert((*warning).clone()))
+        .map(|warning| PlanWarning {
+            summary: warning.clone(),
+            detail: warning.clone(),
+        })
+        .collect::<Vec<_>>();
+    let audio_paths_change = tracks.iter().any(|track| {
+        track.destination.strip_prefix(destination).ok() != Some(track.source_relative.as_path())
+    });
+    if !audio_paths_change {
+        return warnings;
+    }
+    for file in ancillary.iter().filter(|file| {
+        ["cue", "m3u", "m3u8"].iter().any(|extension| {
+            file.source_relative
+                .extension()
+                .and_then(|value| value.to_str())
+                .is_some_and(|value| value.eq_ignore_ascii_case(extension))
+        })
+    }) {
+        let already_warned = source.notices.iter().any(|notice| {
+            notice.kind == crate::source::NoticeKind::StaleReference
+                && notice.path.as_ref() == Some(&file.source_relative)
+        });
+        if !already_warned {
+            let path = file.source_relative.display();
+            let summary =
+                format!("{path}: planned audio renames may leave preserved references stale");
+            warnings.push(PlanWarning {
+                summary: summary.clone(),
+                detail: summary,
+            });
+        }
+    }
+    warnings
 }
 
 fn ensure_unique_outputs(plan: &GroomingPlan) -> Result<(), PlanningError> {

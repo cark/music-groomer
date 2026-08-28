@@ -5,7 +5,7 @@ use crate::domain::{Artist, ArtistCredit, CandidateRelease, Position, ReleaseKin
 use crate::guided_matching::{ArtworkSelection, GuidedMatchResult, MetadataProvenance};
 use crate::matching::{MatchDecision, MatchPolicy};
 use crate::matching_ui::MetadataSelection;
-use crate::plan::{ArtworkOrigin, MatchSelection};
+use crate::plan::{AncillaryPlan, ArtworkOrigin, MatchSelection, TrackPlan};
 use crate::provider::{ProviderArtwork, source_inspection};
 use crate::source::{
     AncillaryFile, ArtworkCandidate, ArtworkFormat, AudioFormat, AudioProperties, AudioTags,
@@ -77,6 +77,88 @@ fn selected_source_artwork_gets_a_canonical_native_name() {
         plan.artwork.origin,
         ArtworkOrigin::SourceSidecar { ref source_name } if source_name == "folder.png"
     ));
+}
+
+#[test]
+fn planned_audio_renames_warn_for_each_preserved_reference_file() {
+    let mut source = loose_source();
+    for name in ["album.cue", "playlist.m3u", "playlist.m3u8"] {
+        source.ancillary.push(AncillaryFile {
+            relative_path: PathBuf::from(name),
+            bytes: 1,
+        });
+    }
+    let candidate = single_candidate();
+    let (inspection, _) = source_inspection(&source);
+    let ranked = first_ranked(MatchPolicy::default().decide(&inspection, vec![candidate]));
+    let matched = result(
+        MetadataSelection::Provider(Box::new(ranked)),
+        ArtworkSelection::None,
+    );
+
+    let plan = build_plan(&source, &matched, Path::new("/library")).unwrap();
+
+    for name in ["album.cue", "playlist.m3u", "playlist.m3u8"] {
+        assert!(plan.warnings.iter().any(|warning| {
+            warning.summary.starts_with(name) && warning.summary.contains("references stale")
+        }));
+    }
+}
+
+#[test]
+fn planned_reference_warning_does_not_duplicate_an_inspection_warning() {
+    let mut source = loose_source();
+    source.ancillary.push(AncillaryFile {
+        relative_path: PathBuf::from("playlist.m3u"),
+        bytes: 1,
+    });
+    let candidate = single_candidate();
+    let (inspection, _) = source_inspection(&source);
+    let ranked = first_ranked(MatchPolicy::default().decide(&inspection, vec![candidate]));
+    let mut matched = result(
+        MetadataSelection::Provider(Box::new(ranked)),
+        ArtworkSelection::None,
+    );
+    source
+        .notices
+        .push(crate::source::InspectionNotice::warning(
+            crate::source::NoticeKind::StaleReference,
+            Some(PathBuf::from("playlist.m3u")),
+            "audio extension correction may leave preserved references stale",
+        ));
+    matched.warnings.push(
+        "playlist.m3u: audio extension correction may leave preserved references stale".into(),
+    );
+
+    let plan = build_plan(&source, &matched, Path::new("/library")).unwrap();
+
+    assert_eq!(
+        plan.warnings
+            .iter()
+            .filter(|warning| warning.summary.contains("references stale"))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn unchanged_audio_paths_do_not_warn_about_preserved_references() {
+    let matched = result(MetadataSelection::ExistingTags, ArtworkSelection::None);
+    let destination = Path::new("/library/Artist/Album");
+    let tracks = [TrackPlan {
+        source_relative: PathBuf::from("track.flac"),
+        destination: destination.join("track.flac"),
+        tag_changes: Vec::new(),
+        planned_tags: None,
+    }];
+    let ancillary = [AncillaryPlan {
+        source_relative: PathBuf::from("playlist.m3u"),
+        destination_relative: PathBuf::from("playlist.m3u"),
+    }];
+
+    let warnings = plan_warnings(&loose_source(), &matched, &tracks, &ancillary, destination);
+
+    assert!(warnings.is_empty());
 }
 
 #[test]
