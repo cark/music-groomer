@@ -9,6 +9,12 @@ transition, read and follow
 [agent-docs/milestone-workflow.md](agent-docs/milestone-workflow.md). This is
 the canonical lifecycle and must be revisited at every milestone boundary.
 
+Immediately before asking to accept or close a milestone, re-read that workflow
+and verify that the terminal exercise, deliberate review, full verification,
+and blocking corrections are complete. After explicit acceptance, triage the
+flyby inbox before aligning the next milestone. Never collapse either boundary
+into the acceptance request.
+
 Start with [agent-docs/00-start-here.md](agent-docs/00-start-here.md).
 Follow its task-based routing instead of loading every page by default.
 
