@@ -44,7 +44,9 @@ compatibility, per-file collisions, and interruption behavior.
 - Playlist and multi-item batch processing.
 - Playlist and cue-sheet reference rewriting.
 - Native splitting of cue sheets backed by one large audio image.
-- Explicit in-library replacement.
+- Replacement of an explicitly selected standalone library file. This remains
+  an important follow-up after whole-release directory replacement because file
+  selection does not establish ownership of its directory or siblings.
 - Minimal manual rescue for a liked album or track that remains unidentified;
   this is important, but follows the provider-backed v0.1 rather than turning
   initial matching into a general tag editor.

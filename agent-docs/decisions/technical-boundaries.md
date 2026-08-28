@@ -137,6 +137,13 @@ not weaken it with a check-then-rename fallback. Ordinary `Ctrl-C` termination
 may occur before or after this syscall, but cannot expose a half-renamed
 directory.
 
+That no-replace primitive remains mandatory for ordinary new-result Apply. The
+separate post-v0.1 whole-release replacement workflow is governed by
+[Existing-release replacement](existing-release-replacement.md): it may retire
+only the explicitly selected active lineage after its replacement-specific
+warning, confirmation, recovery, and identity checks. Do not weaken ordinary
+collision refusal or infer replacement from an external-source collision.
+
 Continuously check that portability with one minimal GitHub Actions matrix on
 standard Linux, macOS, and Windows runners. Run the ordinary locked test suite
 only; the explicitly ignored live provider smoke tests remain opt-in. Add no CI

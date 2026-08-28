@@ -30,6 +30,10 @@ This page tracks implementation. Durable product reasoning belongs in the
   re-inspected its ten-track result, and approved the experience. The final
   review correction set is implemented and passes the full offline gate. The
   user explicitly accepted Milestone 4 on 2026-08-28.
+- The first post-v0.1 milestone is aligned. Its accepted scope is safe
+  whole-release replacement; incremental merging and completion remain a later
+  distinct workflow. The user explicitly confirmed overall Milestone 5
+  alignment and authorized implementation on 2026-08-28.
 
 ## Working rules
 
@@ -273,6 +277,33 @@ Acceptance:
   reinspection found ten numbered FLAC tracks, Ten Years After as album artist,
   the 2008 date, one disc, and the selected canonical sidecar. The source was
   untouched. This is Milestone 4 evidence, not a separate Milestone 5.
+
+## Milestone 5: safe whole-release replacement and recovery
+
+Status: implementation authorized on 2026-08-28
+
+Re-groom one explicitly selected complete release directory already inside the
+configured library. Reuse the existing guided command and Apply action, but
+show prominent replacement state and require a separate confirmation defaulting
+to No. Build and validate the complete replacement before changing the active
+release, follow corrected metadata to its canonical path, and continue refusing
+ordinary external-source collisions.
+
+Retain displaced versions under a marked, Navidrome-excluded recovery directory
+inside the library. Link active and retained versions through stable lineage
+metadata and a hidden active receipt. Provide guided listing, reversible Restore
+to the selected version's historical path, and explicit one-version deletion.
+
+Bound recovery with a configurable 30-day grace default and configurable 10 GiB
+soft cap. Protected versions may exceed the cap; maintenance evicts oldest
+eligible versions without prompting and reports every removal. Include both
+confirmed-Apply maintenance and scheduler-friendly `music-groomer recovery
+maintain`; external scheduling remains later integration work.
+
+Handled failures attempt rollback after complete preflight and validation. Do
+not add a durable crash journal; power-loss and hard-crash recovery may require
+manual filesystem work. Standalone-file replacement and incremental release
+completion remain important later workflows.
 
 ## Standard verification
 

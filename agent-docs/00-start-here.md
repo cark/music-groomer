@@ -17,6 +17,10 @@ correction set are implemented and verified, and the user explicitly accepted
 the milestone on 2026-08-28. Its corrections and the first cross-platform CI
 run are pushed and green.
 
+Milestone 5 whole-release replacement and recovery alignment was explicitly
+confirmed by the user on 2026-08-28. The user explicitly authorized
+implementation on the same date.
+
 ## Task routing
 
 Read [development plan](development-plan.md) for current status and the active

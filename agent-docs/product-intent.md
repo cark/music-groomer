@@ -43,6 +43,10 @@ tracks encountered separately. This is a meaningful product gap, not optional
 polish: preserve accurate release positions now and make an existing-release
 collision understandable, then design safe incremental completion after v0.1.
 
+The first post-v0.1 workflow is now aligned around replacing one explicitly
+selected complete release directory. Incremental completion and replacement of
+an explicitly selected standalone file remain important later workflows.
+
 Selecting one audio file selects only that file; arbitrary siblings do not
 become source material. Selecting a directory recursively selects one logical
 release together with its ordinary ancillary contents. A directory containing
