@@ -88,6 +88,12 @@ preflight. Clean temporary work after success and handled failure. Rename
 atomically when output shares the filesystem; otherwise copy through a marked
 hidden publication directory beside the destination and then rename it.
 
+Check each filesystem that must hold a complete copy, including a small safety
+margin. Clearly insufficient reported space blocks before copying. Failure to
+obtain a meaningful free-space measurement is non-blocking: warn visibly and
+let the real staged writes enforce capacity, retaining the normal clean failure
+report if they run out of space.
+
 The final rename must also refuse replacement atomically: a destination created
 after the earlier collision check must survive untouched. Keep the
 platform-specific code to one narrow publication primitive backed by

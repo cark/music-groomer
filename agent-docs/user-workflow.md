@@ -161,6 +161,11 @@ failures do not leave dead album copies on persistent storage. Check available
 temporary space before starting and remove temporary work after success or any
 handled failure.
 
+Check every filesystem that will hold a complete copy and block when reported
+free space is clearly insufficient. If free space cannot be measured reliably,
+show a warning but allow Apply; a later capacity failure remains handled and
+must identify the affected stage and path.
+
 If temporary storage and the output share a filesystem, rename the validated
 album atomically into place. Otherwise, copy it through a clearly marked hidden
 publication directory beside the destination, then rename that directory. Clean
