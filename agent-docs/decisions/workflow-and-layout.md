@@ -15,6 +15,14 @@ Pressing Enter at the main action menu merely redisplays it.
 Process one explicitly selected item per v0.1 session. Playlist and multi-item
 batch processing are deferred until single-item behavior is proven.
 
+## Deferred guided refinements
+
+The pre-matching inspection prompt currently treats `q` and `quit` as Continue
+aliases; a later correction should make those inputs visibly cancel instead of
+starting metadata lookup. A sole uncertain numbered candidate currently accepts
+Yes but not `1`; accepting `1` as an additional Yes alias would match what is
+shown without weakening the explicit confirmation or its safe default.
+
 ## Date
 
 Use the album or single's original release year for `DATE` and destination

@@ -1,7 +1,6 @@
 # Milestone 4 final review corrections
 
-Status: implemented and verified; Milestone 4 still requires explicit
-acceptance.
+Status: implemented and verified; Milestone 4 accepted on 2026-08-28.
 
 - Create result files and directories with ordinary process defaults governed
   by the invoking user's umask. Preserve contents, not source permissions,

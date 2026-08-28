@@ -206,4 +206,6 @@ stale. A probable cue sheet backed by one large audio image blocks because
 Navidrome cannot expose its virtual tracks; native splitting is deferred.
 Reliable rewriting or splitting involves encodings, internal metadata, external
 paths, cue layouts, and audio transformation, so it requires a separately
-demonstrated workflow.
+demonstrated workflow. Post-v0.1 work should investigate safe rewriting for
+understood formats, show every proposed rewrite in preview, and fall back
+explicitly when a reference cannot be updated confidently.

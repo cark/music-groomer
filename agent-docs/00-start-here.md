@@ -13,8 +13,8 @@ single discovery, animated provider feedback, and phase spacing on 2026-08-28.
 The accepted post-milestone-3 review corrections are implemented and verified.
 The user completed the explicitly approved Evolution Apply and re-inspected the
 published ten-track result. Milestone 4's deliberate final review and aligned
-correction set are implemented and verified. Explicit milestone acceptance and
-separate push permission are still required.
+correction set are implemented and verified, and the user explicitly accepted
+the milestone on 2026-08-28. A push still requires separate permission.
 
 ## Task routing
 

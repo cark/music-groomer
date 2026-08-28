@@ -87,12 +87,12 @@ read a probable cue sheet blocks inspection.
 
 ## Source stability
 
-v0.1 assumes the explicitly selected source is stable during its short guided
-session. Do not add whole-file hashes or size-and-time snapshot tracking.
-Apply will copy into temporary staging and validate the staged result; handled
-read, copy, or validation failures stop publication and leave the source
-untouched. More elaborate concurrent-change detection is a possible later
-hardening measure if real use demonstrates the need.
+Inspection snapshots the selected tree's relative paths, object kinds, sizes,
+and modification times. Apply rechecks that snapshot immediately before
+staging and requires a fresh inspection when it changed. Do not hash every
+source file merely to strengthen this check: staged validation still proves the
+copied result, while handled read, copy, or validation failures stop publication
+and leave the source untouched.
 
 ## Progress and diagnostics
 

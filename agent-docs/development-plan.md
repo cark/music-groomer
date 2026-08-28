@@ -28,8 +28,8 @@ This page tracks implementation. Durable product reasoning belongs in the
 - Milestone 4 alignment and implementation were authorized on 2026-08-28. The
   user completed an explicitly approved Evolution Apply into the live library,
   re-inspected its ten-track result, and approved the experience. The final
-  review correction set is implemented and passes the full offline gate;
-  milestone acceptance still requires explicit permission.
+  review correction set is implemented and passes the full offline gate. The
+  user explicitly accepted Milestone 4 on 2026-08-28.
 
 ## Working rules
 
@@ -246,7 +246,7 @@ cache fallbacks.
 
 ## Milestone 4: safe apply and validation
 
-Status: implemented, exercised, reviewed, and verified; not yet accepted
+Status: accepted on 2026-08-28
 
 Apply a confirmed immutable plan to temporary staging, validate it, and publish
 the separate result without overwriting collisions.
