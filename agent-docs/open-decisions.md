@@ -25,6 +25,5 @@ decision page.
 
 ## Open questions
 
-Milestone 4's final review correction set is being aligned one finding at a
-time. Accepted items are recorded on the linked review page; implementation
-still requires explicit authorization after the set is complete.
+Milestone 4's final review correction set is aligned and recorded on the linked
+review page. Implementation still requires explicit authorization.
