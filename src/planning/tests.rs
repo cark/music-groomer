@@ -5,7 +5,7 @@ use crate::domain::{Artist, ArtistCredit, CandidateRelease, Position, ReleaseKin
 use crate::guided_matching::{ArtworkSelection, GuidedMatchResult, MetadataProvenance};
 use crate::matching::{MatchDecision, MatchPolicy};
 use crate::matching_ui::MetadataSelection;
-use crate::plan::{AncillaryPlan, ArtworkOrigin, MatchSelection, TrackPlan};
+use crate::plan::{ArtworkOrigin, MatchSelection};
 use crate::provider::{ProviderArtwork, source_inspection};
 use crate::source::{
     AncillaryFile, ArtworkCandidate, ArtworkFormat, AudioFormat, AudioProperties, AudioTags,
@@ -143,22 +143,71 @@ fn planned_reference_warning_does_not_duplicate_an_inspection_warning() {
 
 #[test]
 fn unchanged_audio_paths_do_not_warn_about_preserved_references() {
+    let mut source = loose_source();
+    source.audio[0].relative_path = PathBuf::from("Groove Is in the Heart.mp3");
+    source.ancillary.push(AncillaryFile {
+        relative_path: PathBuf::from("playlist.m3u"),
+        bytes: 1,
+    });
     let matched = result(MetadataSelection::ExistingTags, ArtworkSelection::None);
-    let destination = Path::new("/library/Artist/Album");
-    let tracks = [TrackPlan {
-        source_relative: PathBuf::from("track.flac"),
-        destination: destination.join("track.flac"),
-        tag_changes: Vec::new(),
-        planned_tags: None,
-    }];
-    let ancillary = [AncillaryPlan {
-        source_relative: PathBuf::from("playlist.m3u"),
-        destination_relative: PathBuf::from("playlist.m3u"),
-    }];
 
-    let warnings = plan_warnings(&loose_source(), &matched, &tracks, &ancillary, destination);
+    let plan = build_plan(&source, &matched, Path::new("/library")).unwrap();
 
-    assert!(warnings.is_empty());
+    assert!(
+        plan.warnings
+            .iter()
+            .all(|warning| !warning.summary.contains("references stale"))
+    );
+}
+
+#[test]
+fn provider_plan_removes_a_missing_metadata_warning_it_resolves() {
+    let mut source = loose_source();
+    let notice = crate::source::InspectionNotice::warning(
+        crate::source::NoticeKind::MissingMetadata,
+        None,
+        "some tracks are missing: album artist",
+    );
+    let warning = notice.summary();
+    source.notices.push(notice);
+    let candidate = single_candidate();
+    let (inspection, _) = source_inspection(&source);
+    let ranked = first_ranked(MatchPolicy::default().decide(&inspection, vec![candidate]));
+    let mut matched = result(
+        MetadataSelection::Provider(Box::new(ranked)),
+        ArtworkSelection::None,
+    );
+    matched.warnings.push(warning.clone());
+
+    let plan = build_plan(&source, &matched, Path::new("/library")).unwrap();
+
+    assert!(
+        plan.warnings
+            .iter()
+            .all(|plan_warning| plan_warning.summary != warning)
+    );
+}
+
+#[test]
+fn existing_tags_keep_a_missing_metadata_warning_they_do_not_resolve() {
+    let mut source = loose_source();
+    let notice = crate::source::InspectionNotice::warning(
+        crate::source::NoticeKind::MissingMetadata,
+        None,
+        "some tracks are missing: album artist",
+    );
+    let warning = notice.summary();
+    source.notices.push(notice);
+    let mut matched = result(MetadataSelection::ExistingTags, ArtworkSelection::None);
+    matched.warnings.push(warning.clone());
+
+    let plan = build_plan(&source, &matched, Path::new("/library")).unwrap();
+
+    assert!(
+        plan.warnings
+            .iter()
+            .any(|plan_warning| plan_warning.summary == warning)
+    );
 }
 
 #[test]

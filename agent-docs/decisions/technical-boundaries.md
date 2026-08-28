@@ -42,6 +42,13 @@ The human interface renders them with clear text and restrained styling; a
 future machine interface can serialize the same values and receive warnings on
 successful results.
 
+Evaluate warnings in their explicit workflow phase. Before planning, report
+source and matching uncertainty. After constructing the complete grooming
+plan, derive plan warnings from the typed source notices and that plan: omit a
+condition only when the plan demonstrably repairs it, and add consequences
+created by the plan itself. Do not hide this phase distinction behind an
+optional grooming-plan argument.
+
 Keep MusicBrainz behind a narrow adapter. A small implementation evaluation may
 choose a Rust client crate or direct HTTP without changing core behavior.
 

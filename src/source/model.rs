@@ -189,6 +189,13 @@ impl InspectionNotice {
             message: message.into(),
         }
     }
+
+    pub fn summary(&self) -> String {
+        match &self.path {
+            Some(path) => format!("{}: {}", path.display(), self.message),
+            None => self.message.clone(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

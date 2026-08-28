@@ -139,10 +139,7 @@ fn source_warnings(source: &SourceInspection) -> Vec<String> {
         .notices
         .iter()
         .filter(|notice| notice.severity == NoticeSeverity::Warning)
-        .map(|notice| match &notice.path {
-            Some(path) => format!("{}: {}", path.display(), notice.message),
-            None => notice.message.clone(),
-        })
+        .map(|notice| notice.summary())
         .collect()
 }
 
