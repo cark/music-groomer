@@ -70,7 +70,7 @@ pub struct AncillaryPlan {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ArtworkOrigin {
-    SourceSidecar { source_name: String },
+    SourceSidecar { source_name: PathBuf },
     CoverArtArchive { release_group_id: String },
     None,
 }

@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::guided_matching::{ArtworkSelection, GuidedMatchResult};
 use crate::matching_ui::MetadataSelection;
@@ -14,7 +14,7 @@ pub(super) fn artwork_plan(
             let candidate = source.artwork.get(*index);
             let choice = candidate.map_or_else(no_artwork, |candidate| ArtworkChoice {
                 origin: ArtworkOrigin::SourceSidecar {
-                    source_name: candidate.relative_path.display().to_string(),
+                    source_name: candidate.relative_path.clone(),
                 },
                 label: format!("Source {}", candidate.relative_path.display()),
                 dimensions: Some(candidate.dimensions),
@@ -55,7 +55,7 @@ pub(super) fn ancillary_plan(
         .filter_map(|file| {
             let destination_relative = match &artwork.origin {
                 ArtworkOrigin::SourceSidecar { source_name }
-                    if file.relative_path == Path::new(source_name) =>
+                    if file.relative_path == source_name.as_path() =>
                 {
                     return None;
                 }

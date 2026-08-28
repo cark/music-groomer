@@ -253,6 +253,50 @@ fn ancillary_files_and_empty_directories_are_preserved() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn non_utf8_source_artwork_survives_preview_and_apply() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let temporary = TempDir::new().unwrap();
+    let album = temporary.path().join("album");
+    let library = temporary.path().join("library");
+    let temporary_root = temporary.path().join("temporary");
+    fs::create_dir(&album).unwrap();
+    fs::create_dir(&library).unwrap();
+    fs::create_dir(&temporary_root).unwrap();
+    fs::copy(fixture_path("seed.flac"), album.join("source.flac")).unwrap();
+    let source_name = PathBuf::from(OsString::from_vec(b"f\x80lder.png".to_vec()));
+    let source_artwork = album.join(&source_name);
+    image::RgbImage::new(2, 2)
+        .save_with_format(&source_artwork, image::ImageFormat::Png)
+        .unwrap();
+    let before = fs::read(&source_artwork).unwrap();
+    let inspection = SourceInspector::default().inspect(&album).unwrap();
+    let mut plan = test_plan(&album, Path::new("source.flac"), &library, "flac");
+    plan.artwork = ArtworkChoice {
+        origin: ArtworkOrigin::SourceSidecar {
+            source_name: source_name.clone(),
+        },
+        label: format!("Source {}", source_name.display()),
+        dimensions: Some((2, 2)),
+        output_name: Some("cover.png".into()),
+    };
+
+    let preview = plan.artwork.description();
+    assert!(preview.starts_with("Source "));
+    ApplyEngine::in_temporary_root(temporary_root)
+        .apply(&inspection, &plan, &mut ())
+        .unwrap();
+
+    assert_eq!(
+        fs::read(plan.destination.join("cover.png")).unwrap(),
+        before
+    );
+    assert_eq!(fs::read(source_artwork).unwrap(), before);
+}
+
 struct Environment {
     _temporary: TempDir,
     source_path: PathBuf,

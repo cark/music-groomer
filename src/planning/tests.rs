@@ -89,7 +89,7 @@ fn selected_source_artwork_gets_a_canonical_native_name() {
     assert_eq!(plan.artwork.output_name.as_deref(), Some("cover.png"));
     assert!(matches!(
         plan.artwork.origin,
-        ArtworkOrigin::SourceSidecar { ref source_name } if source_name == "folder.png"
+        ArtworkOrigin::SourceSidecar { ref source_name } if source_name == Path::new("folder.png")
     ));
     assert!(plan.ancillary.iter().any(|file| {
         file.source_relative == Path::new("cover.jpg")
