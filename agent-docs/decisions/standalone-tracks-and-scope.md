@@ -11,6 +11,8 @@ For a lone source track, prefer a matching official single; use a studio album
 only when no matching single exists, unless credible existing metadata or
 identifiers establish a different origin. Ask when materially different choices
 remain. If no release is defensible, keep it albumless rather than fabricate one.
+Preserve the track's real position and release total: one selected track from a
+two-track single is tagged `1/2`, not normalized to `1/1`.
 
 ## Identification fallback
 
@@ -27,6 +29,15 @@ than adding a general tag editor.
 Previously groomed albums and standalone tracks may be explicitly selected for
 a later provider retry, still producing a separate result. Do not add automatic
 library discovery, in-place updates, or a durable ingestion database.
+
+Completing or rebuilding an existing release is an important post-v0.1
+workflow. A library assembled from loose tracks may encounter the remaining
+tracks of a release individually, or may eventually reconstruct a complete
+album piece by piece. v0.1 still refuses the existing release-directory
+collision rather than attempting a non-atomic merge. Explain that specific
+limitation at the collision instead of presenting it as an unexplained path
+error. A later design must verify release identity, existing track and artwork
+compatibility, per-file collisions, and interruption behavior.
 
 ## Deferred workflows
 

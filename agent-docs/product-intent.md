@@ -38,6 +38,11 @@ replacing an explicitly selected album or track already inside the live library
 is the next distinct destination workflow; do not mix replacement safety into
 v0.1.
 
+That deferred workflow must include completing or rebuilding a release from
+tracks encountered separately. This is a meaningful product gap, not optional
+polish: preserve accurate release positions now and make an existing-release
+collision understandable, then design safe incremental completion after v0.1.
+
 Selecting one audio file selects only that file; arbitrary siblings do not
 become source material. Selecting a directory recursively selects one logical
 release together with its ordinary ancillary contents. A directory containing
