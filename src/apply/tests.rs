@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 use tempfile::TempDir;
@@ -181,6 +182,92 @@ fn failed_validation_cleans_staging_and_publishes_nothing() {
             .next()
             .is_none()
     );
+}
+
+#[test]
+fn every_reported_stage_can_fail_without_publishing_or_leaking_staging() {
+    for stage in [
+        ApplyStage::Preflight,
+        ApplyStage::Copying,
+        ApplyStage::Grooming,
+        ApplyStage::Validating,
+        ApplyStage::Publishing,
+    ] {
+        let environment = Environment::new("seed.flac");
+        let before = fs::read(&environment.source_path).unwrap();
+        let mut progress = FailAt(stage);
+
+        let failure = environment
+            .engine(false)
+            .apply(&environment.inspection, &environment.plan, &mut progress)
+            .unwrap_err();
+
+        assert_eq!(failure.stage, stage);
+        assert_eq!(failure.cause, "injected stage failure");
+        assert!(!environment.plan.destination.exists());
+        assert_eq!(fs::read(&environment.source_path).unwrap(), before);
+        assert!(
+            fs::read_dir(&environment.temporary_root)
+                .unwrap()
+                .next()
+                .is_none()
+        );
+        let expected_cleanup = if stage == ApplyStage::Preflight {
+            CleanupOutcome::NotNeeded
+        } else {
+            CleanupOutcome::Complete
+        };
+        assert_eq!(failure.cleanup, expected_cleanup);
+    }
+}
+
+#[test]
+fn archive_artwork_replaces_source_cover_and_preserves_the_original() {
+    let temporary = TempDir::new().unwrap();
+    let album = temporary.path().join("album");
+    let library = temporary.path().join("library");
+    let temporary_root = temporary.path().join("temporary");
+    fs::create_dir(&album).unwrap();
+    fs::create_dir(&library).unwrap();
+    fs::create_dir(&temporary_root).unwrap();
+    let source_audio = album.join("source.flac");
+    fs::copy(fixture_path("seed.flac"), &source_audio).unwrap();
+    let source_artwork = jpeg_bytes(2, 2, [20, 40, 60]);
+    fs::write(album.join("folder.jpg"), &source_artwork).unwrap();
+    let source_audio_before = fs::read(&source_audio).unwrap();
+    let inspection = SourceInspector::default().inspect(&album).unwrap();
+    let archive_artwork = jpeg_bytes(4, 3, [180, 120, 60]);
+    let mut plan = test_plan(&album, Path::new("source.flac"), &library, "flac");
+    plan.ancillary = vec![AncillaryPlan {
+        source_relative: PathBuf::from("folder.jpg"),
+        destination_relative: PathBuf::from("original-artwork/folder.jpg"),
+    }];
+    plan.artwork = ArtworkChoice {
+        origin: ArtworkOrigin::CoverArtArchive {
+            release_group_id: "test-release-group".into(),
+        },
+        label: "Cover Art Archive front".into(),
+        dimensions: Some((4, 3)),
+        output_name: Some("cover.jpg".into()),
+    };
+    plan.archive_artwork_bytes = Some(archive_artwork.clone());
+
+    let report = ApplyEngine::in_temporary_root(temporary_root)
+        .apply(&inspection, &plan, &mut ())
+        .unwrap();
+
+    assert!(report.artwork_validated);
+    assert_eq!(
+        fs::read(plan.destination.join("cover.jpg")).unwrap(),
+        archive_artwork
+    );
+    assert_eq!(
+        fs::read(plan.destination.join("original-artwork/folder.jpg")).unwrap(),
+        source_artwork
+    );
+    assert!(!plan.destination.join("folder.jpg").exists());
+    assert_eq!(fs::read(&source_audio).unwrap(), source_audio_before);
+    assert_eq!(fs::read(album.join("folder.jpg")).unwrap(), source_artwork);
 }
 
 #[test]
@@ -412,4 +499,25 @@ impl ApplyProgress for RecordedProgress {
         self.stages.push(stage);
         Ok(())
     }
+}
+
+struct FailAt(ApplyStage);
+
+impl ApplyProgress for FailAt {
+    fn stage(&mut self, stage: ApplyStage) -> Result<(), String> {
+        if stage == self.0 {
+            Err("injected stage failure".into())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+fn jpeg_bytes(width: u32, height: u32, color: [u8; 3]) -> Vec<u8> {
+    let image = image::RgbImage::from_pixel(width, height, image::Rgb(color));
+    let mut bytes = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgb8(image)
+        .write_to(&mut bytes, image::ImageFormat::Jpeg)
+        .unwrap();
+    bytes.into_inner()
 }
