@@ -7,11 +7,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::provider::DEFAULT_CACHE_MAX_BYTES;
 
+const DEFAULT_RECOVERY_GRACE_DAYS: u64 = 30;
+const DEFAULT_RECOVERY_MAX_MIB: u64 = 10 * 1024;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AppConfig {
     pub destination: Option<PathBuf>,
     pub cache_max_mib: Option<u64>,
+    pub recovery_grace_days: Option<u64>,
+    pub recovery_max_mib: Option<u64>,
 }
 
 impl AppConfig {
@@ -38,6 +43,24 @@ impl AppConfig {
                 .checked_mul(1024 * 1024)
                 .ok_or(ConfigError::InvalidCacheLimit),
         }
+    }
+
+    pub fn recovery_grace_days(&self) -> Result<u64, ConfigError> {
+        match self.recovery_grace_days {
+            None => Ok(DEFAULT_RECOVERY_GRACE_DAYS),
+            Some(0) => Err(ConfigError::InvalidRecoveryGraceDays),
+            Some(days) => Ok(days),
+        }
+    }
+
+    pub fn recovery_max_bytes(&self) -> Result<u64, ConfigError> {
+        let mebibytes = self.recovery_max_mib.unwrap_or(DEFAULT_RECOVERY_MAX_MIB);
+        if mebibytes == 0 {
+            return Err(ConfigError::InvalidRecoveryLimit);
+        }
+        mebibytes
+            .checked_mul(1024 * 1024)
+            .ok_or(ConfigError::InvalidRecoveryLimit)
     }
 
     pub fn platform_path() -> Result<PathBuf, ConfigError> {
@@ -77,6 +100,8 @@ pub enum ConfigError {
     Read(PathBuf, std::io::Error),
     Parse(PathBuf, toml::de::Error),
     InvalidCacheLimit,
+    InvalidRecoveryGraceDays,
+    InvalidRecoveryLimit,
     InvalidPath(PathBuf),
     Write(PathBuf, String),
 }
@@ -94,6 +119,11 @@ impl fmt::Display for ConfigError {
             Self::InvalidCacheLimit => {
                 formatter.write_str("cache_max_mib must be a positive whole number")
             }
+            Self::InvalidRecoveryGraceDays => {
+                formatter.write_str("recovery_grace_days must be a positive whole number")
+            }
+            Self::InvalidRecoveryLimit => formatter
+                .write_str("recovery_max_mib must be a positive whole number that fits in bytes"),
             Self::InvalidPath(path) => write!(
                 formatter,
                 "configuration path has no parent directory: {}",
@@ -120,6 +150,11 @@ mod tests {
         let config = AppConfig::load_from(&temporary.path().join("missing.toml")).unwrap();
 
         assert_eq!(config.cache_max_bytes().unwrap(), 256 * 1024 * 1024);
+        assert_eq!(config.recovery_grace_days().unwrap(), 30);
+        assert_eq!(
+            config.recovery_max_bytes().unwrap(),
+            10 * 1024 * 1024 * 1024
+        );
     }
 
     #[test]
@@ -144,10 +179,64 @@ mod tests {
         let config = AppConfig {
             destination: Some(PathBuf::from("/media/music")),
             cache_max_mib: Some(12),
+            recovery_grace_days: Some(45),
+            recovery_max_mib: Some(20 * 1024),
         };
 
         config.save_to(&path).unwrap();
 
         assert_eq!(AppConfig::load_from(&path).unwrap(), config);
+    }
+
+    #[test]
+    fn recovery_preferences_are_configurable() {
+        let temporary = TempDir::new().unwrap();
+        let path = temporary.path().join("config.toml");
+        fs::write(
+            &path,
+            "recovery_grace_days = 90\nrecovery_max_mib = 20480\n",
+        )
+        .unwrap();
+        let config = AppConfig::load_from(&path).unwrap();
+
+        assert_eq!(config.recovery_grace_days().unwrap(), 90);
+        assert_eq!(
+            config.recovery_max_bytes().unwrap(),
+            20 * 1024 * 1024 * 1024
+        );
+    }
+
+    #[test]
+    fn zero_recovery_preferences_are_rejected() {
+        let grace = AppConfig {
+            recovery_grace_days: Some(0),
+            ..AppConfig::default()
+        };
+        assert!(matches!(
+            grace.recovery_grace_days(),
+            Err(ConfigError::InvalidRecoveryGraceDays)
+        ));
+
+        let limit = AppConfig {
+            recovery_max_mib: Some(0),
+            ..AppConfig::default()
+        };
+        assert!(matches!(
+            limit.recovery_max_bytes(),
+            Err(ConfigError::InvalidRecoveryLimit)
+        ));
+    }
+
+    #[test]
+    fn overflowing_recovery_limit_is_rejected() {
+        let config = AppConfig {
+            recovery_max_mib: Some(u64::MAX),
+            ..AppConfig::default()
+        };
+
+        assert!(matches!(
+            config.recovery_max_bytes(),
+            Err(ConfigError::InvalidRecoveryLimit)
+        ));
     }
 }

@@ -23,6 +23,7 @@ tracing = { version = "0.1", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "tracing-log"] }
 ureq = { version = "3", features = ["json"] }
 urlencoding = "2"
+uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 rustix = { version = "1", features = ["fs"] }

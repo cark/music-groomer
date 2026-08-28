@@ -16,5 +16,6 @@ pub mod matching_ui;
 pub mod plan;
 pub mod planning;
 pub mod provider;
+pub mod recovery;
 pub mod source;
 pub mod terminal;
