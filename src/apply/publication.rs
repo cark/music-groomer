@@ -309,7 +309,7 @@ fn remove_marked_entry(entry: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(unix)]
-fn same_filesystem(left: &Path, right: &Path) -> Result<bool, PublicationError> {
+pub(crate) fn same_filesystem(left: &Path, right: &Path) -> Result<bool, PublicationError> {
     use std::os::unix::fs::MetadataExt;
     let left_metadata = fs::metadata(left).map_err(|source| PublicationError::Io {
         path: left.to_owned(),
@@ -323,7 +323,7 @@ fn same_filesystem(left: &Path, right: &Path) -> Result<bool, PublicationError> 
 }
 
 #[cfg(windows)]
-fn same_filesystem(left: &Path, right: &Path) -> Result<bool, PublicationError> {
+pub(crate) fn same_filesystem(left: &Path, right: &Path) -> Result<bool, PublicationError> {
     Ok(windows_volume(left)? == windows_volume(right)?)
 }
 

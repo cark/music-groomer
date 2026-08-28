@@ -7,8 +7,10 @@ use crate::plan::GroomingPlan;
 use crate::recovery::RECOVERY_DIRECTORY;
 use crate::source::SourceInspection;
 
+mod restore;
 mod swap;
 
+pub use restore::{RestoreError, RestoreReport, RestoreRequest, restore};
 pub use swap::{ReplacementSwap, ReplacementSwapReport, SwapError, swap_prepared};
 
 #[derive(Clone, Debug, PartialEq, Eq)]

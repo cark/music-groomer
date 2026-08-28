@@ -8,6 +8,8 @@ use std::path::{Component, Path, PathBuf};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 
+use crate::apply::publication::exclusive_rename;
+
 pub const RECOVERY_DIRECTORY: &str = ".music-groomer-recovery";
 pub const ACTIVE_RECEIPT: &str = ".music-groomer";
 
@@ -104,6 +106,14 @@ pub struct RecoveryLock {
 pub struct PreparedRetainedPayload {
     pub payload: PathBuf,
     pub storage_path: PathBuf,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ManualRemovalReport {
+    pub display_label: String,
+    pub retained_at: u64,
+    pub size_bytes: u64,
+    pub cleanup_warning: Option<String>,
 }
 
 impl RecoveryStore {
@@ -392,8 +402,10 @@ impl RecoveryStore {
             .parent()
             .expect("retained payload always has a container");
         verify_existing_directory_chain(&self.root, container)?;
-        if fs::symlink_metadata(&payload).is_ok() {
-            return Err(RecoveryError::UnsafePath(payload));
+        match fs::symlink_metadata(&payload) {
+            Ok(_) => return Err(RecoveryError::UnsafePath(payload)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(source) => return Err(RecoveryError::Io(payload, source)),
         }
         let marker_path = container.join(VERSION_MARKER);
         let marker: VersionMarker = read_regular_json(&marker_path)?;
@@ -414,6 +426,94 @@ impl RecoveryStore {
             }
         }
         Ok(())
+    }
+
+    pub fn remove_retained(
+        &self,
+        lineage_id: &str,
+        version_id: &str,
+    ) -> Result<ManualRemovalReport, RecoveryError> {
+        validate_id(lineage_id)?;
+        validate_id(version_id)?;
+        let lock = self.lock()?;
+        let mut index = self.load_index()?;
+        let lineage = index
+            .lineages
+            .iter()
+            .find(|lineage| lineage.lineage_id == lineage_id)
+            .ok_or_else(|| {
+                RecoveryError::InvalidMetadata(format!(
+                    "recovery lineage {lineage_id} does not exist"
+                ))
+            })?;
+        if lineage.active_version_id == version_id {
+            return Err(RecoveryError::InvalidMetadata(
+                "the active recovery version cannot be removed".into(),
+            ));
+        }
+        let version = lineage
+            .retained_versions
+            .iter()
+            .find(|version| version.version_id == version_id)
+            .cloned()
+            .ok_or_else(|| {
+                RecoveryError::InvalidMetadata(format!(
+                    "retained recovery version {version_id} does not exist"
+                ))
+            })?;
+        let payload =
+            self.verify_retained_payload(lineage_id, version_id, &version.storage_path)?;
+        let size_bytes = strict_tree_size(&payload)?;
+        let original = payload
+            .parent()
+            .expect("retained payload always has a container")
+            .to_owned();
+        let staging_root = self.root.join(EVICTION_STAGING);
+        ensure_directory_chain(&self.root, &staging_root)?;
+        let staged_path = staging_root.join(version_id);
+        if let Err(error) = exclusive_rename(&original, &staged_path) {
+            let _ = fs::remove_dir(&staging_root);
+            return Err(RecoveryError::Transaction(error.to_string()));
+        }
+        let staged = StagedEviction {
+            lineage_id: lineage_id.to_owned(),
+            version_id: version_id.to_owned(),
+            original: original.clone(),
+            staged: staged_path,
+        };
+
+        for lineage in &mut index.lineages {
+            if lineage.lineage_id == lineage_id {
+                lineage
+                    .retained_versions
+                    .retain(|retained| retained.version_id != version_id);
+            }
+        }
+        if let Err(error) = self.save_index(&lock, &index) {
+            return Err(rollback_staged_evictions(
+                error,
+                std::slice::from_ref(&staged),
+                &staging_root,
+            ));
+        }
+
+        let cleanup_warning = verify_staged_eviction(&self.root, &staged)
+            .and_then(|()| {
+                fs::remove_dir_all(&staged.staged)
+                    .map_err(|source| RecoveryError::Io(staged.staged.clone(), source))
+            })
+            .err()
+            .map(|error| error.to_string());
+        if cleanup_warning.is_none() {
+            remove_empty_retained_parents(&original);
+        }
+        let _ = fs::remove_dir(&staging_root);
+        Ok(ManualRemovalReport {
+            display_label: version.display_label,
+            retained_at: version.retained_at,
+            size_bytes,
+            cleanup_warning,
+        })
     }
 
     pub fn maintain(&self, max_bytes: u64, now: u64) -> Result<MaintenancePlan, RecoveryError> {
@@ -504,9 +604,9 @@ impl RecoveryStore {
                     ));
                 }
             }
-            if let Err(source) = fs::rename(&target.original, &staged_path) {
+            if let Err(error) = exclusive_rename(&target.original, &staged_path) {
                 return Err(rollback_staged_evictions(
-                    RecoveryError::Io(target.original.clone(), source),
+                    RecoveryError::Transaction(error.to_string()),
                     &staged,
                     &staging_root,
                 ));
@@ -893,7 +993,7 @@ fn rollback_staged_evictions(
 ) -> RecoveryError {
     let mut failures = Vec::new();
     for entry in staged.iter().rev() {
-        if let Err(error) = fs::rename(&entry.staged, &entry.original) {
+        if let Err(error) = exclusive_rename(&entry.staged, &entry.original) {
             failures.push(format!(
                 "cannot return {} to {}: {error}",
                 entry.staged.display(),
@@ -1201,6 +1301,7 @@ pub enum RecoveryError {
         failures: Vec<String>,
     },
     MaintenanceCleanup(Vec<String>),
+    Transaction(String),
     InvalidMetadata(String),
     Damaged(PathBuf, String),
     Io(PathBuf, std::io::Error),
@@ -1248,6 +1349,9 @@ impl fmt::Display for RecoveryError {
                 "recovery metadata was updated, but eviction cleanup was incomplete: {}",
                 failures.join("; ")
             ),
+            Self::Transaction(cause) => {
+                write!(formatter, "recovery filesystem transaction failed: {cause}")
+            }
             Self::InvalidMetadata(cause) => write!(formatter, "invalid recovery metadata: {cause}"),
             Self::Damaged(path, cause) => {
                 write!(
@@ -1927,6 +2031,98 @@ mod tests {
                 .join("payload/track.flac")
                 .exists()
         );
+    }
+
+    #[test]
+    fn manual_removal_deletes_exactly_one_protected_retained_version() {
+        let temporary = TempDir::new().unwrap();
+        let library = temporary.path().join("library");
+        fs::create_dir(&library).unwrap();
+        let store = RecoveryStore::create_or_open(&library).unwrap();
+        let lock = store.lock().unwrap();
+        let lineage_id = new_lineage_id();
+        let selected = prepared_version(
+            &store,
+            &lock,
+            &lineage_id,
+            "selected",
+            10,
+            u64::MAX,
+            b"selected",
+            None,
+        );
+        let lineage_storage = selected.storage_path.parent().unwrap().to_owned();
+        let untouched = prepared_version(
+            &store,
+            &lock,
+            &lineage_id,
+            "untouched",
+            20,
+            u64::MAX,
+            b"untouched",
+            Some(&lineage_storage),
+        );
+        let mut index = RecoveryIndex::default();
+        index.lineages.push(ReleaseLineage {
+            lineage_id: lineage_id.clone(),
+            active_version_id: new_version_id(),
+            expected_active_path: PathBuf::from("Artist/Album"),
+            retained_versions: vec![selected.clone(), untouched.clone()],
+        });
+        store.save_index(&lock, &index).unwrap();
+        drop(lock);
+
+        let report = store
+            .remove_retained(&lineage_id, &selected.version_id)
+            .unwrap();
+
+        assert_eq!(report.display_label, "selected");
+        assert_eq!(report.size_bytes, 8);
+        assert_eq!(report.cleanup_warning, None);
+        let updated = store.load_index().unwrap();
+        assert_eq!(
+            updated.lineages[0].retained_versions,
+            std::slice::from_ref(&untouched)
+        );
+        assert!(
+            !store
+                .retained_payload_path(&selected.storage_path)
+                .unwrap()
+                .exists()
+        );
+        assert!(
+            store
+                .retained_payload_path(&untouched.storage_path)
+                .unwrap()
+                .exists()
+        );
+    }
+
+    #[test]
+    fn manual_removal_refuses_the_active_version_identifier() {
+        let temporary = TempDir::new().unwrap();
+        let library = temporary.path().join("library");
+        fs::create_dir(&library).unwrap();
+        let store = RecoveryStore::create_or_open(&library).unwrap();
+        let lock = store.lock().unwrap();
+        let active_version_id = new_version_id();
+        let mut index = RecoveryIndex::default();
+        index.lineages.push(ReleaseLineage {
+            lineage_id: new_lineage_id(),
+            active_version_id: active_version_id.clone(),
+            expected_active_path: PathBuf::from("Artist/Album"),
+            retained_versions: Vec::new(),
+        });
+        let lineage_id = index.lineages[0].lineage_id.clone();
+        store.save_index(&lock, &index).unwrap();
+        drop(lock);
+
+        let error = store
+            .remove_retained(&lineage_id, &active_version_id)
+            .unwrap_err();
+
+        assert!(error.to_string().contains("active recovery version"));
+        assert_eq!(store.load_index().unwrap(), index);
     }
 
     #[allow(clippy::too_many_arguments)]
