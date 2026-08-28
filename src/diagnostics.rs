@@ -10,8 +10,8 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-pub fn initialize() -> Result<PathBuf, DiagnosticsError> {
-    Diagnostics::open(&platform_path()?)?.install()
+pub fn initialize(include_audio_libraries: bool) -> Result<PathBuf, DiagnosticsError> {
+    Diagnostics::open(&platform_path()?)?.install(include_audio_libraries)
 }
 
 fn platform_path() -> Result<PathBuf, DiagnosticsError> {
@@ -64,9 +64,9 @@ impl Diagnostics {
         })
     }
 
-    fn install(self) -> Result<PathBuf, DiagnosticsError> {
+    fn install(self, include_audio_libraries: bool) -> Result<PathBuf, DiagnosticsError> {
         let path = self.path;
-        diagnostics_subscriber(self.file)
+        diagnostics_subscriber(self.file, include_audio_libraries)
             .try_init()
             .map_err(|source| DiagnosticsError::Install(source.to_string()))?;
         tracing::info!(diagnostics = %path.display(), "diagnostics enabled");
@@ -74,10 +74,18 @@ impl Diagnostics {
     }
 }
 
-fn diagnostics_subscriber(file: File) -> impl tracing::Subscriber + Send + Sync + 'static {
-    let filter = Targets::new()
+fn diagnostics_subscriber(
+    file: File,
+    include_audio_libraries: bool,
+) -> impl tracing::Subscriber + Send + Sync + 'static {
+    let mut filter = Targets::new()
         .with_target("music_groomer", tracing::Level::TRACE)
         .with_default(LevelFilter::OFF);
+    if include_audio_libraries {
+        filter = filter
+            .with_target("lofty", tracing::Level::TRACE)
+            .with_target("mp4parse", tracing::Level::TRACE);
+    }
     let formatting = tracing_subscriber::fmt::layer()
         .with_ansi(false)
         .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
@@ -184,7 +192,7 @@ mod tests {
         let temporary = tempfile::TempDir::new().unwrap();
         let path = temporary.path().join("diagnostics.log");
         let diagnostics = Diagnostics::open(&path).unwrap();
-        let subscriber = diagnostics_subscriber(diagnostics.file.try_clone().unwrap());
+        let subscriber = diagnostics_subscriber(diagnostics.file.try_clone().unwrap(), false);
 
         tracing::subscriber::with_default(subscriber, || {
             tracing::info!(target: "some_dependency", "must stay filtered");
@@ -199,5 +207,25 @@ mod tests {
         assert!(output.contains("/music/track.flac"));
         assert!(output.contains("close time.busy="));
         assert!(!output.contains("must stay filtered"));
+    }
+
+    #[test]
+    fn audio_diagnostics_include_only_the_selected_parser_libraries() {
+        let temporary = tempfile::TempDir::new().unwrap();
+        let path = temporary.path().join("diagnostics.log");
+        let diagnostics = Diagnostics::open(&path).unwrap();
+        let subscriber = diagnostics_subscriber(diagnostics.file.try_clone().unwrap(), true);
+
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::trace!(target: "lofty::probe", "lofty detail");
+            tracing::trace!(target: "mp4parse", "mp4 detail");
+            tracing::trace!(target: "ureq", "http detail must stay filtered");
+        });
+        drop(diagnostics);
+        let output = fs::read_to_string(&path).unwrap();
+
+        assert!(output.contains("lofty detail"));
+        assert!(output.contains("mp4 detail"));
+        assert!(!output.contains("http detail must stay filtered"));
     }
 }

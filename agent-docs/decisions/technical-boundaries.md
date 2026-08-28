@@ -87,6 +87,9 @@ send logs directly to stdout or stderr during the guided interface: all normal
 terminal output continues through semantic UI primitives. The v0.1 diagnostic
 subscriber is explicit, synchronous, human-readable, and filtered to
 application-owned targets; structured JSON and always-on logging are deferred.
+The explicit `audio` diagnostic scope may additionally admit only the selected
+tag and container-parser targets; it is not an unrestricted dependency-log
+switch.
 
 ## Apply and cleanup
 

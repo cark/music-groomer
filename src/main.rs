@@ -49,7 +49,7 @@ fn run() -> Result<(), String> {
     let arguments = Cli::parse();
     let diagnostics = arguments
         .diagnostics
-        .then(diagnostics::initialize)
+        .map(|scope| diagnostics::initialize(scope.includes_audio_libraries()))
         .transpose()
         .map_err(|error| error.to_string())?;
     let cache_directory = arguments.cache_dir;
