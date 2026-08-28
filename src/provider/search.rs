@@ -238,6 +238,7 @@ mod tests {
             artwork: Vec::new(),
             selected_artwork: None,
             notices: Vec::new(),
+            snapshot: Vec::new(),
         };
 
         let (inspection, search) = source_inspection(&source);
@@ -260,6 +261,7 @@ mod tests {
             artwork: Vec::new(),
             selected_artwork: None,
             notices: Vec::new(),
+            snapshot: Vec::new(),
         };
         source.audio[1].tags.album = Some("  album  ".into());
 
@@ -279,6 +281,7 @@ mod tests {
             artwork: Vec::new(),
             selected_artwork: None,
             notices: Vec::new(),
+            snapshot: Vec::new(),
         };
 
         let (inspection, search) = source_inspection(&source);

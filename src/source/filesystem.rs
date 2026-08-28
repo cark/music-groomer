@@ -65,6 +65,7 @@ impl SourceInspector {
             artwork: Vec::new(),
             selected_artwork: None,
             notices: Vec::new(),
+            snapshot: Vec::new(),
         };
         if kind == SourceKind::LooseFile {
             self.inspect_file(source, root, &mut inspection);
@@ -82,6 +83,14 @@ impl SourceInspector {
                 .cmp(right.relative_path.as_os_str())
         });
         super::analysis::finish(root, &mut inspection);
+        match super::snapshot::capture(source, kind) {
+            Ok(snapshot) => inspection.snapshot = snapshot,
+            Err(error) => inspection.notices.push(InspectionNotice::blocker(
+                NoticeKind::Unreadable,
+                error.path.strip_prefix(root).ok().map(Path::to_owned),
+                error.to_string(),
+            )),
+        }
         Ok(inspection)
     }
 

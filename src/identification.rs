@@ -364,6 +364,7 @@ mod tests {
             artwork: Vec::new(),
             selected_artwork: None,
             notices: Vec::new(),
+            snapshot: Vec::new(),
         }
     }
 }

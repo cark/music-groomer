@@ -1,6 +1,6 @@
 use std::fmt;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use crate::domain::SourceKind;
 
@@ -81,6 +81,22 @@ pub struct InspectedAudio {
 pub struct AncillaryFile {
     pub relative_path: PathBuf,
     pub bytes: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceObjectKind {
+    File,
+    Directory,
+    Symlink,
+    Special,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceSnapshotEntry {
+    pub relative_path: PathBuf,
+    pub kind: SourceObjectKind,
+    pub bytes: u64,
+    pub modified: Option<SystemTime>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -184,6 +200,7 @@ pub struct SourceInspection {
     pub artwork: Vec<ArtworkCandidate>,
     pub selected_artwork: Option<usize>,
     pub notices: Vec<InspectionNotice>,
+    pub snapshot: Vec<SourceSnapshotEntry>,
 }
 
 impl SourceInspection {

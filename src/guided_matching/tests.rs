@@ -1021,6 +1021,7 @@ fn source() -> SourceInspection {
         artwork: Vec::new(),
         selected_artwork: None,
         notices: Vec::new(),
+        snapshot: Vec::new(),
     }
 }
 
@@ -1063,6 +1064,7 @@ fn poorly_tagged_track() -> SourceInspection {
         artwork: Vec::new(),
         selected_artwork: None,
         notices: Vec::new(),
+        snapshot: Vec::new(),
     }
 }
 
