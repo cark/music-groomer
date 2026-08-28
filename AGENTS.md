@@ -49,14 +49,38 @@ Delegation is optional. The root agent may run zero to three subagents
 concurrently only when the work divides cleanly into independent, bounded
 streams. Subagents must not delegate recursively.
 
-Use Luna at medium effort for bounded exploration, focused review, and
-mechanical work. Escalate a difficult bounded investigation, implementation,
-or review to Luna at xhigh only when additional reasoning is likely to improve
-the result materially. Use Sol at medium only for bounded advisory work on
-architecture, data safety, broad final audits, or conflicting findings. Sol
-does not own product or safety decisions; the root agent synthesizes the
-evidence and discusses consequential choices with the user. Treat these as
-routing defaults when the named models are available, not as quotas.
+Route work by role, not by filling available slots:
+
+- **Luna medium — scout or mechanic (default):** bounded repository maps,
+  test-gap inventories, focused reviews, mechanical or disjoint edits, and
+  focused tests, documentation, configuration, or CLI work.
+- **Luna xhigh — investigator or adversarial reviewer (exception):** difficult
+  bounded investigations, safety reviews, conflicting-evidence resolution, or
+  focused correction review. Give it implementation only when the interface is
+  frozen, the owned files and acceptance tests are exact, and the change is
+  small. It is not a tranche owner.
+- **Sol medium — architecture or data-safety auditor (rare):** bounded advice
+  on architecture, data safety, broad final audits, or unresolved conflicts.
+  It does not own implementation or product and safety decisions.
+- **Root — contract and integration owner:** product dialogue, shared
+  contracts, decomposition, transaction and safety-critical core work,
+  integration, synthesis, Git operations, and final verification.
+
+Luna xhigh has higher and less predictable startup and deliberation cost. In
+this project it may spend that budget without producing a patch when a task is
+broad, greenfield, contract-heavy, or depends on evolving shared APIs. More
+reasoning effort is therefore not a general escalation path. Prefer a Luna
+medium scout, let the root freeze the contract, then use Luna xhigh for one
+narrow investigation or review. Run at most one xhigh subagent concurrently
+unless the root records why two genuinely independent xhigh reviews are worth
+the cost. If an xhigh write task reaches a status checkpoint without a patch,
+report, or concrete blocker, interrupt it and narrow or reclaim the work.
+
+Use Sol medium only when Luna findings conflict or independent architectural or
+data-safety scrutiny materially justifies its cost. The root synthesizes all
+advice and discusses consequential choices with the user. Treat these as
+routing defaults when the named models are available, not as quotas; use two or
+three concurrent threads only when their deliverables are truly independent.
 
 Every subagent brief must be self-contained: state the objective, relevant
 repository context, accepted constraints, current authorization, exact scope,
