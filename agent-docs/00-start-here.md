@@ -21,12 +21,18 @@ Milestone 5 whole-release replacement and recovery was implemented, reviewed,
 verified, exercised through disposable fixtures, and explicitly accepted by
 the user on 2026-08-29.
 
+A [feature and project-lead development experiment](proposals/feature-project-lead-development.md)
+is recorded as a tentative future workflow. It is not active and does not
+supersede the current milestone workflow yet.
+
 ## Task routing
 
 Read [development plan](development-plan.md) for current status and the active
 milestone. Then load only the pages relevant to the task:
 
 - Any milestone work or transition: [milestone workflow](milestone-workflow.md).
+- Future development-process discussion:
+  [feature and project-lead experiment](proposals/feature-project-lead-development.md).
 - Product direction or scope: [product intent](product-intent.md) and the
   [decision index](open-decisions.md).
 - Guided interaction or layout: [user workflow](user-workflow.md) and
