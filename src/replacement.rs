@@ -162,10 +162,47 @@ mod tests {
         let plan = plan(&library, library.join("Artist/New Album"));
 
         let context = detect(&source, &plan).unwrap().unwrap();
+        let canonical_library = library.canonicalize().unwrap();
 
-        assert_eq!(context.active_path, active);
+        assert_eq!(
+            context.active_path,
+            canonical_library.join("Artist/Old Album")
+        );
         assert_eq!(context.historical_path, Path::new("Artist/Old Album"));
-        assert_eq!(context.destination, library.join("Artist/New Album"));
+        assert_eq!(
+            context.destination,
+            canonical_library.join("Artist/New Album")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn aliased_library_paths_resolve_to_one_canonical_replacement_identity() {
+        use std::os::unix::fs::symlink;
+
+        let temporary = TempDir::new().unwrap();
+        let real_library = temporary.path().join("real-library");
+        let aliased_library = temporary.path().join("library-alias");
+        fs::create_dir(&real_library).unwrap();
+        symlink(&real_library, &aliased_library).unwrap();
+        let active = aliased_library.join("Artist/Old Album");
+        fs::create_dir_all(&active).unwrap();
+        let source = inspection(&active, SourceKind::AlbumDirectory);
+        let plan = plan(&aliased_library, aliased_library.join("Artist/New Album"));
+
+        let context = detect(&source, &plan).unwrap().unwrap();
+        let canonical_library = real_library.canonicalize().unwrap();
+
+        assert_eq!(context.library_root, canonical_library);
+        assert_eq!(
+            context.active_path,
+            canonical_library.join("Artist/Old Album")
+        );
+        assert_eq!(context.historical_path, Path::new("Artist/Old Album"));
+        assert_eq!(
+            context.destination,
+            canonical_library.join("Artist/New Album")
+        );
     }
 
     #[test]
@@ -179,8 +216,11 @@ mod tests {
         let source = inspection(&active, SourceKind::AlbumDirectory);
 
         let error = detect(&source, &plan(&library, occupied.clone())).unwrap_err();
+        let canonical_occupied = occupied.canonicalize().unwrap();
 
-        assert!(matches!(error, ReplacementError::ExternalCollision(path) if path == occupied));
+        assert!(
+            matches!(error, ReplacementError::ExternalCollision(path) if path == canonical_occupied)
+        );
     }
 
     #[test]
@@ -193,8 +233,14 @@ mod tests {
         let nested = active.join("New Album");
 
         let error = detect(&source, &plan(&library, nested.clone())).unwrap_err();
+        let canonical_nested = library
+            .canonicalize()
+            .unwrap()
+            .join("Artist/Album/New Album");
 
-        assert!(matches!(error, ReplacementError::DestinationInsideSource(path) if path == nested));
+        assert!(
+            matches!(error, ReplacementError::DestinationInsideSource(path) if path == canonical_nested)
+        );
         assert!(active.exists());
     }
 
@@ -223,8 +269,11 @@ mod tests {
         let source = inspection(&retained, SourceKind::AlbumDirectory);
 
         let error = detect(&source, &plan(&library, library.join("Artist/Album"))).unwrap_err();
+        let canonical_retained = retained.canonicalize().unwrap();
 
-        assert!(matches!(error, ReplacementError::RecoverySource(path) if path == retained));
+        assert!(
+            matches!(error, ReplacementError::RecoverySource(path) if path == canonical_retained)
+        );
     }
 
     fn inspection(path: &Path, kind: SourceKind) -> SourceInspection {

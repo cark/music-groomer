@@ -106,7 +106,9 @@ music-groomer does not claim crash-proof transactions in this alpha release.
 The cache defaults to 256 MiB. It can be changed in the platform user config
 file with, for example, `cache_max_mib = 128`. Metadata is fresh for 30 days;
 stale entries remain available as an explicit fallback and least-recently used
-entries are pruned to keep the cache within its limit.
+entries are pruned to keep the cache within its limit. An absolute
+`XDG_CONFIG_HOME` explicitly selects the configuration root on every supported
+platform; otherwise music-groomer uses the platform-standard location.
 
 The Nix development shell supplies the reference `fpcalc` helper used for the
 optional standalone-track fallback. music-groomer calculates at most the first

@@ -64,6 +64,12 @@ impl AppConfig {
     }
 
     pub fn platform_path() -> Result<PathBuf, ConfigError> {
+        if let Some(config_home) = std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+        {
+            return Ok(config_home.join("music-groomer/config.toml"));
+        }
         let directories = directories::ProjectDirs::from("", "", "music-groomer")
             .ok_or(ConfigError::NoPlatformConfigDirectory)?;
         Ok(directories.config_dir().join("config.toml"))

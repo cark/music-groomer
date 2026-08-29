@@ -997,7 +997,9 @@ mod tests {
     impl Fixture {
         fn new(relocate: bool) -> Self {
             let temporary = TempDir::new().unwrap();
-            let library = temporary.path().join("library");
+            let unresolved_library = temporary.path().join("library");
+            fs::create_dir(&unresolved_library).unwrap();
+            let library = unresolved_library.canonicalize().unwrap();
             let active = library.join("Artist/Album");
             let historical = if relocate {
                 PathBuf::from("Artist/Old Album")

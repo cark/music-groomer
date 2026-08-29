@@ -33,6 +33,7 @@ fn maintenance_without_a_recovery_store_is_a_successful_read_only_noop() {
     let temporary = TempDir::new().unwrap();
     let library = temporary.path().join("library");
     fs::create_dir(&library).unwrap();
+    let canonical_library = library.canonicalize().unwrap();
     let config_home = configured_library(&temporary, &library, 1);
 
     let output = Command::new(binary())
@@ -44,7 +45,7 @@ fn maintenance_without_a_recovery_store_is_a_successful_read_only_noop() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("Recovery maintenance"));
-    assert!(stdout.contains(library.to_str().unwrap()));
+    assert!(stdout.contains(canonical_library.to_str().unwrap()));
     assert!(stdout.contains("No eligible retained copies needed eviction"));
     assert!(stdout.contains("Recovery usage: 0 B / 1.0 MiB"));
     assert!(RecoveryStore::open_existing(&library).unwrap().is_none());
